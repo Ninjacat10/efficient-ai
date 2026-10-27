@@ -1,0 +1,13 @@
+anthropic>=0.70
+requests>=2.31
+mss>=9.0
+Pillow>=10.0
+pyautogui>=0.9.54
+pyperclip>=1.8
+keyboard>=0.13.5
+pystray>=0.19
+pywin32>=306 ; sys_platform == "win32"
+uiautomation>=2.0.18 ; sys_platform == "win32"
+pypdf>=4.0
+python-docx>=1.1
+winocr>=0.0.4 ; sys_platform == "win32"
