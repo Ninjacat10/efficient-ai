@@ -68,8 +68,8 @@ class OllamaProvider:
 class OpenAICompatProvider:
     """LM Studio, llama.cpp server, vLLM, Jan... anything speaking /v1/chat/completions."""
 
-    def __init__(self, url: str, model: str):
-        self.url, self.model = url.rstrip("/"), model
+    def __init__(self, url: str, model: str, key: str = ""):
+        self.url, self.model, self.key = url.rstrip("/"), model, key
 
     def chat(self, system: str, text: str, images=(), **_) -> str:
         content = [{"type": "text", "text": text}] + [
@@ -77,6 +77,7 @@ class OpenAICompatProvider:
         ]
         r = requests.post(
             f"{self.url}/chat/completions",
+            headers={"Authorization": f"Bearer {self.key}"} if self.key else {},
             json={"model": self.model, "messages": [{"role": "system", "content": system}, {"role": "user", "content": content}]},
             timeout=600,
         )
@@ -93,4 +94,8 @@ def get_provider(kind: str | None = None):
         return OllamaProvider(cfg["ollama_url"], cfg["ollama_model"])
     if kind == "openai_compat":
         return OpenAICompatProvider(cfg["openai_compat_url"], cfg["openai_compat_model"])
+    if kind == "gemini":
+        import os
+
+        return OpenAICompatProvider(cfg["gemini_url"], cfg["gemini_model"], os.environ.get("GEMINI_API_KEY") or cfg["gemini_api_key"])
     raise ValueError(f"Unknown provider {kind!r}")

@@ -70,12 +70,37 @@ class Stopped(Exception):
     pass
 
 
+def _fn(name: str, description: str, props: dict, required: list[str]) -> dict:
+    return {"type": "function", "function": {"name": name, "description": description,
+            "parameters": {"type": "object", "properties": props, "required": required}}}
+
+
+_XY = {"x": {"type": "integer", "description": "0-1000, left to right"}, "y": {"type": "integer", "description": "0-1000, top to bottom"}}
+
+# Gemini has no Claude-style computer toolset, so Sidekick exposes the same actions as plain
+# functions. Coordinates are normalized 0-1000 (the grid Gemini is trained to point with).
+GEMINI_TOOLS = [
+    _fn("screenshot", "Take a new screenshot of the screen.", {}, []),
+    _fn("click", "Click at a point.", {**_XY, "button": {"type": "string", "enum": ["left", "right", "double"]}}, ["x", "y"]),
+    _fn("type", "Type text at the current focus.", {"text": {"type": "string"}}, ["text"]),
+    _fn("key", "Press a key or combo, e.g. 'enter', 'ctrl+l', 'win'.", {"keys": {"type": "string"}}, ["keys"]),
+    _fn("scroll", "Scroll at a point.", {**_XY, "direction": {"type": "string", "enum": ["up", "down", "left", "right"]}, "amount": {"type": "integer"}}, ["x", "y", "direction"]),
+    _fn("drag", "Drag from one point to another.", {"x": _XY["x"], "y": _XY["y"], "to_x": _XY["x"], "to_y": _XY["y"]}, ["x", "y", "to_x", "to_y"]),
+    _fn("wait", "Wait for the screen to update.", {"seconds": {"type": "number"}}, []),
+    _fn("ask_user", ASK_USER_TOOL["description"], {"question": {"type": "string"}}, ["question"]),
+]
+
+GEMINI_NOTE = "\n\nCoordinates: every x and y is on a 0-1000 grid over the latest screenshot (0,0 top-left, 1000,1000 bottom-right). When the task is done, reply with text and no function call."
+
+
 class Sidekick:
     def __init__(self, ask: Callable[[str], str], status: Callable[[str], None] = print):
-        import anthropic
-
         self.cfg = load_config()
-        self.client = anthropic.Anthropic()
+        self.backend = self.cfg.get("sidekick_provider", "anthropic")
+        if self.backend == "anthropic":
+            import anthropic
+
+            self.client = anthropic.Anthropic()
         self.screen = Screen()
         self.ask = ask
         self.status = status
@@ -166,6 +191,8 @@ class Sidekick:
     def run(self, task: str) -> str:
         self.stop_event.clear()
         system = SYSTEM.format(knowledge=knowledge_context(30_000) or "(knowledge base is empty - run the nightly build)")
+        if self.backend == "gemini":
+            return self._run_gemini(task, system + GEMINI_NOTE)
         messages = [{"role": "user", "content": task}]
         for step in range(self.cfg["sidekick_max_steps"]):
             if self.stop_event.is_set():
@@ -206,6 +233,86 @@ class Sidekick:
                     result["toolset_name"] = toolset
                 results.append(result)
             messages.append({"role": "user", "content": results})
+        return "Stopped: reached the step limit."
+
+    # ---- Gemini backend (OpenAI-compatible endpoint + function calling) ----
+    def _grid(self, x, y) -> list[int]:
+        """0-1000 grid -> the scaled screenshot space execute() expects."""
+        return [round(int(x) * self.screen.sw / 1000), round(int(y) * self.screen.sh / 1000)]
+
+    def _gemini_action(self, name: str, a: dict) -> str:
+        if name == "screenshot":
+            return "OK"  # a fresh screenshot is attached after every turn anyway
+        if name == "click":
+            action = {"right": "right_click", "double": "double_click"}.get(a.get("button"), "left_click")
+            return self.execute(action, {"coordinate": self._grid(a["x"], a["y"])})
+        if name == "type":
+            return self.execute("type", {"text": a["text"]})
+        if name == "key":
+            return self.execute("key", {"text": a["keys"].replace(" ", "")})
+        if name == "scroll":
+            return self.execute("scroll", {"coordinate": self._grid(a["x"], a["y"]), "scroll_direction": a.get("direction", "down"), "scroll_amount": a.get("amount", 3)})
+        if name == "drag":
+            return self.execute("left_click_drag", {"start_coordinate": self._grid(a["x"], a["y"]), "coordinate": self._grid(a["to_x"], a["to_y"])})
+        if name == "wait":
+            return self.execute("wait", {"duration": a.get("seconds", 1)})
+        return f"Unknown function {name!r}."
+
+    def _shot_msg(self) -> dict:
+        b64 = png_b64(self.screen.grab())
+        return {"role": "user", "content": [
+            {"type": "text", "text": "Current screen:"},
+            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
+        ]}
+
+    def _run_gemini(self, task: str, system: str) -> str:
+        import json
+        import os
+
+        import requests
+
+        key = os.environ.get("GEMINI_API_KEY") or self.cfg.get("gemini_api_key")
+        if not key:
+            return "Set GEMINI_API_KEY (or gemini_api_key in config.json) to use Sidekick with Gemini."
+        url = self.cfg["gemini_url"].rstrip("/") + "/chat/completions"
+        messages = [{"role": "system", "content": system}, {"role": "user", "content": task}, self._shot_msg()]
+        for step in range(self.cfg["sidekick_max_steps"]):
+            if self.stop_event.is_set():
+                return "Stopped by you."
+            r = requests.post(url, headers={"Authorization": f"Bearer {key}"}, timeout=180,
+                              json={"model": self.cfg["gemini_model"], "messages": messages, "tools": GEMINI_TOOLS})
+            if r.status_code != 200:
+                return f"Gemini error {r.status_code}: {r.text[:300]}"
+            msg = r.json()["choices"][0]["message"]
+            calls = msg.get("tool_calls") or []
+            if not calls:
+                return (msg.get("content") or "Done.").strip()
+            messages.append({"role": "assistant", "content": msg.get("content") or "", "tool_calls": calls})
+            for call in calls:
+                name = call["function"]["name"]
+                try:
+                    args = json.loads(call["function"].get("arguments") or "{}")
+                except json.JSONDecodeError:
+                    args = {}
+                self.status(f"step {step + 1}: {name} {_brief(args)}")
+                try:
+                    if name == "ask_user":
+                        out = self.ask(args.get("question", "")) or "(no answer - do not proceed with that step)"
+                    else:
+                        out = self._gemini_action(name, args)
+                except Stopped:
+                    return "Stopped by you."
+                except pyautogui.FailSafeException:
+                    return "Stopped: mouse moved to a screen corner (failsafe)."
+                except Exception as e:
+                    out = f"Error: {e}"
+                messages.append({"role": "tool", "tool_call_id": call.get("id", name), "content": str(out)})
+            # Tool messages can't carry images on this endpoint, so the new screen goes in a user turn;
+            # drop older screenshots to keep requests small.
+            for m in messages:
+                if m["role"] == "user" and isinstance(m["content"], list):
+                    m["content"] = "(older screenshot removed)"
+            messages.append(self._shot_msg())
         return "Stopped: reached the step limit."
 
     def stop(self) -> None:

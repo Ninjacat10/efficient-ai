@@ -30,6 +30,12 @@ DEFAULTS: dict = {
     "ollama_model": "llama3.1:8b",
     "openai_compat_url": "http://localhost:1234/v1",
     "openai_compat_model": "local-model",
+    # Gemini via Google's OpenAI-compatible endpoint. Key: GEMINI_API_KEY env var or gemini_api_key.
+    "gemini_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "gemini_model": "gemini-2.5-flash",
+    "gemini_api_key": "",
+    # Sidekick backend: "anthropic" (Claude computer use) or "gemini".
+    "sidekick_provider": "anthropic",
     # Double Tap can use a different (e.g. local, faster) provider.
     "doubletap_provider": "anthropic",
     "sources": {
