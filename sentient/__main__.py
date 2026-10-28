@@ -41,7 +41,9 @@ def main(argv: list[str]) -> int:
         cfg = load_config()
         scheduler.install_nightly(cfg["nightly_time"])
         scheduler.set_autostart(True)
-        print(f"Config:    {CONFIG_PATH}\nKnowledge: {KNOWLEDGE_DIR}\nNightly task installed for {cfg['nightly_time']} and autostart enabled.")
+        scheduler.create_shortcuts()
+        print(f"Config:    {CONFIG_PATH}\nKnowledge: {KNOWLEDGE_DIR}\nNightly task installed for {cfg['nightly_time']}, autostart enabled,"
+              " and a 'Sentient' shortcut added to the Start Menu and Desktop.")
     elif cmd == "uninstall":
         from . import scheduler
 

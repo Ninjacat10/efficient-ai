@@ -42,6 +42,10 @@ DEFAULTS: dict = {
         "folders": {"enabled": True, "paths": ["~/Documents", "~/Desktop"]},
         "outlook_mail": {"enabled": True, "days": 14, "max_items": 300},
         "outlook_calendar": {"enabled": True, "days_back": 7, "days_ahead": 21},
+        # Yahoo needs an app password (Account security -> Generate app password), stored in the env var.
+        "imap_mail": {"enabled": False, "days": 14, "max_items": 300, "accounts": [
+            {"name": "yahoo", "host": "imap.mail.yahoo.com", "user": "you@yahoo.com", "password_env": "YAHOO_APP_PASSWORD", "sent": "Sent"},
+        ]},
         "sticky_notes": {"enabled": True},
         "screenshots": {"enabled": True, "paths": ["~/Pictures/Screenshots"]},
         "onenote_export": {"enabled": False, "paths": []},
@@ -52,6 +56,7 @@ DEFAULTS: dict = {
         "doubletap_window_ms": 350,
         "kill_switch": "ctrl+alt+esc",
     },
+    "claude_code_folder": "~",
     "nightly_time": "03:00",
     "sidekick_max_steps": 60,
 }

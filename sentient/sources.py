@@ -190,6 +190,59 @@ def screenshots(cfg: dict, since: float) -> Iterator[dict]:
                 yield {"source": "screenshot", "id": str(p), "title": p.name, "when": _iso(mtime), "text": text[:MAX_CHARS], "meta": {"path": str(p)}}
 
 
+def imap_mail(cfg: dict, since: float) -> Iterator[dict]:
+    """Any IMAP mailbox (Yahoo, Gmail, iCloud...). Passwords are app passwords read from env vars."""
+    import email
+    import imaplib
+    from email.header import decode_header, make_header
+    from email.utils import parsedate_to_datetime
+
+    def hdr(v) -> str:
+        return str(make_header(decode_header(v or "")))
+
+    def body(msg) -> str:
+        for part in msg.walk() if msg.is_multipart() else [msg]:
+            if part.get_content_type() == "text/plain" and not part.get_filename():
+                return (part.get_payload(decode=True) or b"").decode(part.get_content_charset() or "utf-8", "ignore")
+        return ""
+
+    for acct in cfg.get("accounts", []):
+        password = os.environ.get(acct.get("password_env", ""), "")
+        if not password:
+            log.info("IMAP %s: set the %s environment variable", acct.get("name"), acct.get("password_env"))
+            continue
+        cutoff = max(since, (dt.datetime.now() - dt.timedelta(days=cfg.get("days", 14))).timestamp())
+        try:
+            with imaplib.IMAP4_SSL(acct["host"], timeout=60) as m:
+                m.login(acct["user"], password)
+                for folder, label in ((acct.get("inbox", "INBOX"), "inbox"), (acct.get("sent", "Sent"), "sent")):
+                    if m.select(f'"{folder}"', readonly=True)[0] != "OK":
+                        continue
+                    since_str = dt.datetime.fromtimestamp(cutoff).strftime("%d-%b-%Y")
+                    ids = m.search(None, f"SINCE {since_str}")[1][0].split()
+                    for num in reversed(ids[-cfg.get("max_items", 300):]):
+                        typ, data = m.fetch(num, "(BODY.PEEK[])")
+                        if typ != "OK" or not data or not isinstance(data[0], tuple):
+                            continue
+                        msg = email.message_from_bytes(data[0][1])
+                        try:
+                            ts = parsedate_to_datetime(msg["Date"]).timestamp()
+                        except Exception:
+                            ts = cutoff + 1
+                        if ts <= cutoff:
+                            continue
+                        yield {
+                            "source": f"mail_{label}",
+                            "id": f"{acct['name']}:{msg.get('Message-ID', num.decode())}",
+                            "title": hdr(msg["Subject"]) or "(no subject)",
+                            "when": _iso(ts),
+                            "text": body(msg)[:MAX_CHARS],
+                            "meta": {"account": acct["name"], "from": hdr(msg["From"]), "to": hdr(msg["To"])},
+                        }
+        except Exception as e:
+            log.warning("IMAP %s failed: %s", acct.get("name"), e)
+
+
 def onenote_export(cfg: dict, since: float) -> Iterator[dict]:
     # OneNote has no stable local DB; export notebooks to .docx/.pdf/.md and point this at the folder.
     yield from (dict(i, source="note") for i in folders(cfg, since))
@@ -199,6 +252,7 @@ REGISTRY = {
     "folders": folders,
     "outlook_mail": outlook_mail,
     "outlook_calendar": outlook_calendar,
+    "imap_mail": imap_mail,
     "sticky_notes": sticky_notes,
     "screenshots": screenshots,
     "onenote_export": onenote_export,

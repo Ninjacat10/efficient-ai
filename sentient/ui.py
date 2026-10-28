@@ -9,8 +9,11 @@ import threading
 import tkinter as tk
 from tkinter import ttk
 
-BG, FG, ACCENT, MUTED, CARD = "#15161a", "#f2f2f4", "#7c6cff", "#9a9aa6", "#1f2026"
-FONT = ("Segoe UI", 11)
+BG, FG, ACCENT, MUTED, CARD = "#0f1014", "#f4f4f7", "#8b7cff", "#9a9aa8", "#1c1d24"
+HOVER, ACCENT_HOVER, LINE = "#2a2b34", "#a194ff", "#2c2d36"
+FONT = ("Segoe UI Variable Text", 11)
+TITLE = ("Segoe UI Variable Display Semibold", 16)
+SMALL = ("Segoe UI Variable Text", 9)
 
 
 class UI:
@@ -53,8 +56,61 @@ class UI:
         return win
 
     def _button(self, parent, text, cmd, primary=False):
-        return tk.Button(parent, text=text, command=cmd, font=FONT, relief="flat", padx=12, pady=4,
-                         bg=ACCENT if primary else CARD, fg=FG, activebackground=ACCENT, activeforeground=FG, bd=0)
+        bg, hover = (ACCENT, ACCENT_HOVER) if primary else (CARD, HOVER)
+        b = tk.Button(parent, text=text, command=cmd, font=FONT, relief="flat", padx=14, pady=6, cursor="hand2",
+                      bg=bg, fg="#0f1014" if primary else FG, activebackground=hover, activeforeground=FG, bd=0)
+        b.bind("<Enter>", lambda _: b.configure(bg=hover))
+        b.bind("<Leave>", lambda _: b.configure(bg=bg))
+        return b
+
+    # ---- Home window (tray click / Start Menu) ---------------------------
+    def home(self, actions: list[tuple[str, str, object]], subtitle: str = ""):
+        """actions: (title, hint, callback). One launcher window instead of hunting through the tray menu."""
+        if getattr(self, "_home", None) and self._home.winfo_exists():
+            self._home.deiconify()
+            self._home.lift()
+            self._home.focus_force()
+            return
+        win = self._window("Sentient", 440, 120 + 74 * len(actions))
+        win.attributes("-topmost", False)
+        self._home = win
+        tk.Label(win, text="Sentient", font=TITLE, bg=BG, fg=FG).pack(anchor="w", padx=22, pady=(20, 0))
+        tk.Label(win, text=subtitle, font=SMALL, bg=BG, fg=MUTED).pack(anchor="w", padx=22, pady=(0, 12))
+        for title, hint, cb in actions:
+            row = tk.Frame(win, bg=CARD, cursor="hand2", padx=16, pady=10)
+            row.pack(fill="x", padx=18, pady=4)
+            a = tk.Label(row, text=title, font=("Segoe UI Variable Text Semibold", 11), bg=CARD, fg=FG, anchor="w")
+            a.pack(fill="x")
+            b = tk.Label(row, text=hint, font=SMALL, bg=CARD, fg=MUTED, anchor="w")
+            b.pack(fill="x")
+            parts = (row, a, b)
+            for w in parts:
+                w.bind("<Button-1>", lambda _, cb=cb: cb())
+                w.bind("<Enter>", lambda _, p=parts: [x.configure(bg=HOVER) for x in p])
+                w.bind("<Leave>", lambda _, p=parts: [x.configure(bg=CARD) for x in p])
+
+    # ---- Live status pill while Sidekick works ----------------------------
+    def status_pill(self, on_stop):
+        """Small bar at the bottom of the screen showing what Sidekick is doing, with a Stop button."""
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        win = self._window("Sentient status", 520, 46, (sw - 520) // 2, sh - 110)
+        win.overrideredirect(True)
+        frame = tk.Frame(win, bg=CARD, highlightbackground=ACCENT, highlightthickness=1)
+        frame.pack(fill="both", expand=True)
+        dot = tk.Label(frame, text="●", font=FONT, bg=CARD, fg=ACCENT)
+        dot.pack(side="left", padx=(12, 6))
+        label = tk.Label(frame, text="Starting...", font=SMALL, bg=CARD, fg=FG, anchor="w")
+        label.pack(side="left", fill="x", expand=True)
+        self._button(frame, "Stop", on_stop).pack(side="right", padx=6, pady=6)
+
+        def pulse(on=[True]):
+            if win.winfo_exists():
+                on[0] = not on[0]
+                dot.configure(fg=ACCENT if on[0] else CARD)
+                win.after(600, pulse)
+
+        pulse()
+        return win, label
 
     def _ask(self, question, box, done):
         win = self._window("Sidekick needs you", 520, 220)
@@ -76,23 +132,23 @@ class UI:
 
     # ---- Sidekick ----------------------------------------------------------
     def sidekick_bar(self, on_submit, on_stop):
-        win = self._window("Sidekick", 640, 110)
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        win = self._window("Sidekick", 680, 128, (sw - 680) // 2, sh // 3)
         win.overrideredirect(True)
         frame = tk.Frame(win, bg=BG, highlightbackground=ACCENT, highlightthickness=2)
         frame.pack(fill="both", expand=True)
-        entry = tk.Entry(frame, font=("Segoe UI", 14), bg=BG, fg=FG, insertbackground=FG, relief="flat")
-        entry.pack(fill="x", padx=16, pady=(16, 4))
-        entry.insert(0, "")
-        status = tk.Label(frame, text="Hand off a task - Enter to start, Esc to close", font=("Segoe UI", 9), bg=BG, fg=MUTED, anchor="w")
-        status.pack(fill="x", padx=16)
+        tk.Label(frame, text="✦  What should I finish for you?", font=SMALL, bg=BG, fg=ACCENT, anchor="w").pack(fill="x", padx=18, pady=(14, 0))
+        entry = tk.Entry(frame, font=("Segoe UI Variable Text", 15), bg=BG, fg=FG, insertbackground=ACCENT, relief="flat")
+        entry.pack(fill="x", padx=18, pady=(6, 6))
+        tk.Frame(frame, bg=LINE, height=1).pack(fill="x", padx=18)
+        tk.Label(frame, text="Enter to start  ·  Esc to close  ·  Ctrl+Alt+Esc stops it anytime", font=SMALL, bg=BG, fg=MUTED, anchor="w").pack(fill="x", padx=18, pady=(6, 0))
 
         def submit(_=None):
             task = entry.get().strip()
             if task:
-                entry.configure(state="disabled")
-                status.configure(text="Working... (Ctrl+Alt+Esc or mouse to a screen corner stops it)")
-                win.withdraw()  # get out of the way of the screenshots
-                on_submit(task, lambda s: self.call(status.configure, {"text": s}), lambda: self.call(win.destroy))
+                win.destroy()  # get out of the way of the screenshots
+                pill, label = self.status_pill(on_stop)
+                on_submit(task, lambda s: self.call(label.configure, {"text": s[:80]}), lambda: self.call(pill.destroy))
 
         entry.bind("<Return>", submit)
         entry.bind("<Escape>", lambda _: (on_stop(), win.destroy()))

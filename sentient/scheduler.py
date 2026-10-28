@@ -66,6 +66,25 @@ def uninstall_nightly() -> None:
     subprocess.run(["schtasks", "/Delete", "/TN", TASK_NAME, "/F"], check=False)
 
 
+def create_shortcuts() -> list[str]:
+    """Start Menu + Desktop shortcuts named "Sentient" that launch the tray app with no console window."""
+    import os
+
+    import win32com.client
+
+    shell = win32com.client.Dispatch("WScript.Shell")
+    made = []
+    for folder in (Path(os.environ["APPDATA"]) / "Microsoft/Windows/Start Menu/Programs", Path(shell.SpecialFolders("Desktop"))):
+        lnk = shell.CreateShortcut(str(folder / "Sentient.lnk"))
+        lnk.TargetPath = _pythonw()
+        lnk.Arguments = "-m sentient run"
+        lnk.WorkingDirectory = str(PROJECT_DIR)
+        lnk.Description = "Sentient for Windows"
+        lnk.Save()
+        made.append(str(folder / "Sentient.lnk"))
+    return made
+
+
 def set_autostart(on: bool) -> None:
     with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as k:
         if on:

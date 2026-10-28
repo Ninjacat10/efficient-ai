@@ -23,6 +23,19 @@ class RefusalError(RuntimeError):
     pass
 
 
+def post_with_retry(url: str, tries: int = 6, **kw) -> requests.Response:
+    """POST that waits out rate limits (HTTP 429) and brief server errors, as free API tiers hit them often."""
+    import time
+
+    for n in range(tries):
+        r = requests.post(url, **kw)
+        if r.status_code not in (429, 500, 503) or n == tries - 1:
+            return r
+        wait = float(r.headers.get("retry-after") or min(60, 5 * 2 ** n))
+        time.sleep(wait)
+    return r
+
+
 class AnthropicProvider:
     def __init__(self, model: str):
         import anthropic
@@ -75,7 +88,7 @@ class OpenAICompatProvider:
         content = [{"type": "text", "text": text}] + [
             {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{png_b64(i)}"}} for i in images
         ]
-        r = requests.post(
+        r = post_with_retry(
             f"{self.url}/chat/completions",
             headers={"Authorization": f"Bearer {self.key}"} if self.key else {},
             json={"model": self.model, "messages": [{"role": "system", "content": system}, {"role": "user", "content": content}]},
@@ -83,6 +96,41 @@ class OpenAICompatProvider:
         )
         r.raise_for_status()
         return r.json()["choices"][0]["message"]["content"].strip()
+
+
+class ClaudeCodeProvider:
+    """Runs the Claude Code CLI headless (`claude -p`), so it uses your Claude Pro/Max login, not API credit.
+
+    Images are saved to temp files and Claude Code is allowed to Read them.
+    """
+
+    def chat(self, system: str, text: str, images=(), **_) -> str:
+        import shutil
+        import subprocess
+        import tempfile
+        from pathlib import Path
+
+        exe = shutil.which("claude")
+        if not exe:
+            raise RuntimeError("Claude Code isn't installed. Install it from claude.com/claude-code and run `claude` once to log in.")
+        tmp = Path(tempfile.mkdtemp())
+        paths = []
+        for n, img in enumerate(images):
+            p = tmp / f"screen{n}.png"
+            img.save(p)
+            paths.append(str(p))
+        prompt = text + "".join(f"\n\nScreenshot: {p}" for p in paths)
+        args = [exe, "-p", "--output-format", "text", "--append-system-prompt", system]
+        if paths:
+            args += ["--allowedTools", "Read"]
+        try:
+            r = subprocess.run(args, input=prompt, capture_output=True, text=True, encoding="utf-8", timeout=600,
+                               cwd=tmp, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+        if r.returncode != 0:
+            raise RuntimeError(f"Claude Code failed: {(r.stderr or r.stdout).strip()[:300]}")
+        return r.stdout.strip()
 
 
 def get_provider(kind: str | None = None):
@@ -94,6 +142,8 @@ def get_provider(kind: str | None = None):
         return OllamaProvider(cfg["ollama_url"], cfg["ollama_model"])
     if kind == "openai_compat":
         return OpenAICompatProvider(cfg["openai_compat_url"], cfg["openai_compat_model"])
+    if kind == "claude_code":
+        return ClaudeCodeProvider()
     if kind == "gemini":
         import os
 

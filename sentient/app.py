@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import logging
 import os
+import socket
+import subprocess
 import threading
+from pathlib import Path
 
 import keyboard
 import pystray
@@ -16,6 +19,7 @@ from .sidekick import Sidekick
 from .ui import UI
 
 log = logging.getLogger(__name__)
+INSTANCE_PORT = 47823
 
 
 def _icon() -> Image.Image:
@@ -108,15 +112,68 @@ class App:
 
         threading.Thread(target=work, daemon=True).start()
 
+    # ---- Claude apps -------------------------------------------------------
+    def open_claude_code(self):
+        """A terminal running Claude Code (uses your Claude subscription) in the folder from config."""
+        folder = os.path.expanduser(self.cfg.get("claude_code_folder", "~"))
+        subprocess.Popen(["cmd", "/c", "start", "Claude Code", "cmd", "/k", "claude"], cwd=folder)
+
+    def open_claude_desktop(self):
+        """The Claude desktop app, where Cowork lives."""
+        for p in (Path(os.environ.get("LOCALAPPDATA", "")) / "AnthropicClaude" / "claude.exe",
+                  Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Claude" / "Claude.exe"):
+            if p.exists():
+                subprocess.Popen([str(p)])
+                return
+        try:
+            os.startfile("claude://")
+        except OSError:
+            self.ui.call(self.ui.toast, "Couldn't find the Claude desktop app. Install it from claude.com/download.")
+
+    def show_home(self):
+        hk = self.cfg["hotkeys"]
+        self.ui.call(self.ui.home, [
+            ("Hand off a task", f"Sidekick drives your PC  ·  {hk['sidekick'].title()}", lambda: self.open_sidekick()),
+            ("Morning cards", "What needs you today", self.show_cards),
+            ("Refresh knowledge now", "Read new mail, notes and files", self.refresh_now),
+            ("Claude Code", "Coding agent in a terminal, on your Claude plan", self.open_claude_code),
+            ("Claude app / Cowork", "Open the Claude desktop app", self.open_claude_desktop),
+            ("Knowledge folder", "Everything it knows about you, as files", lambda: os.startfile(KNOWLEDGE_DIR)),
+            ("Settings", "config.json: providers, mail accounts, hotkeys", lambda: os.startfile(CONFIG_PATH)),
+        ], f"Double-tap {hk['doubletap_key'].title()} in any chat or email to draft a reply.")
+
+    def _listen_for_second_launch(self):
+        """Opening Sentient again (Start Menu, desktop icon) shows the home window instead of a second copy."""
+        def serve():
+            while True:
+                conn, _ = self._sock.accept()
+                conn.close()
+                self.show_home()
+
+        threading.Thread(target=serve, daemon=True).start()
+
     # ---- wiring ------------------------------------------------------------
     def run(self):
+        self._sock = socket.socket()
+        try:
+            self._sock.bind(("127.0.0.1", INSTANCE_PORT))
+        except OSError:  # already running: ask that copy to show itself
+            with socket.create_connection(("127.0.0.1", INSTANCE_PORT), timeout=2):
+                pass
+            return
+        self._sock.listen()
+        self._listen_for_second_launch()
+
         hk = self.cfg["hotkeys"]
         keyboard.add_hotkey(hk["sidekick"], self.open_sidekick)
         keyboard.add_hotkey(hk["kill_switch"], self.stop_sidekick)
         DoubleTapListener(self.double_tap, hk["doubletap_key"], hk["doubletap_window_ms"]).start()
 
         menu = pystray.Menu(
-            pystray.MenuItem("Hand off a task (Sidekick)", lambda: self.open_sidekick(), default=True),
+            pystray.MenuItem("Open Sentient", lambda: self.show_home(), default=True),
+            pystray.MenuItem("Hand off a task (Sidekick)", lambda: self.open_sidekick()),
+            pystray.MenuItem("Claude Code", lambda: self.open_claude_code()),
+            pystray.MenuItem("Claude app / Cowork", lambda: self.open_claude_desktop()),
             pystray.MenuItem("Morning cards", lambda: self.show_cards()),
             pystray.MenuItem("Refresh knowledge now", lambda: self.refresh_now()),
             pystray.MenuItem("Open knowledge folder", lambda: os.startfile(KNOWLEDGE_DIR)),
@@ -129,5 +186,5 @@ class App:
 
         if any(c["status"] == "new" for c in proactive.load()):
             self.ui.root.after(1500, self.show_cards)
-        self.ui.call(self.ui.toast, f"Sentient is running. {hk['sidekick'].title()} = Sidekick, double-tap {hk['doubletap_key'].title()} = reply.")
+        self.show_home()
         self.ui.run()
