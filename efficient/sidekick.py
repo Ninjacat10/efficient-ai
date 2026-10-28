@@ -75,7 +75,7 @@ def list_windows() -> str:
 
     def cb(hwnd, _):
         t = win32gui.GetWindowText(hwnd)
-        if t and win32gui.IsWindowVisible(hwnd) and t not in ("Program Manager", "Sentient"):
+        if t and win32gui.IsWindowVisible(hwnd) and t not in ("Program Manager", "Efficient AI"):
             titles.append(t)
 
     win32gui.EnumWindows(cb, None)

@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "sentient-win"
+name = "efficient-ai"
 version = "0.1.0"
-description = "Open-source personal Sentient OS clone for Windows: Sidekick, Double Tap, nightly knowledge, proactive cards."
+description = "Efficient AI: an open-source personal AI assistant for Windows - Sidekick, Double Tap, voice, nightly knowledge, proactive cards."
 requires-python = ">=3.10"
 dynamic = ["dependencies"]
 
@@ -13,7 +13,7 @@ dynamic = ["dependencies"]
 dependencies = { file = ["requirements.txt"] }
 
 [tool.setuptools.packages.find]
-include = ["sentient*"]
+include = ["efficient*"]
 
 [project.scripts]
-sentient = "sentient.__main__:_entry"
+efficient = "efficient.__main__:_entry"

@@ -1,6 +1,6 @@
 """Settings and on-disk layout.
 
-Everything lives under %APPDATA%\\SentientWin unless SENTIENT_HOME is set:
+Everything lives under %APPDATA%\\EfficientAI unless EFFICIENT_HOME is set:
   config.json       settings (sources, provider, hotkeys)
   state.json        incremental-sync cursors
   Knowledge\\        the human-readable knowledge base (markdown you own)
@@ -14,7 +14,7 @@ import os
 from copy import deepcopy
 from pathlib import Path
 
-HOME = Path(os.environ.get("SENTIENT_HOME") or Path(os.environ.get("APPDATA", Path.home())) / "SentientWin")
+HOME = Path(os.environ.get("EFFICIENT_HOME") or Path(os.environ.get("APPDATA", Path.home())) / "EfficientAI")
 CONFIG_PATH = HOME / "config.json"
 STATE_PATH = HOME / "state.json"
 KNOWLEDGE_DIR = HOME / "Knowledge"
@@ -55,7 +55,10 @@ DEFAULTS: dict = {
         "doubletap_key": "right ctrl",
         "doubletap_window_ms": 350,
         "kill_switch": "ctrl+alt+esc",
+        "home": "ctrl+alt+e",
     },
+    # Start Windows voice typing as soon as the Sidekick box opens (Ctrl+M toggles it either way).
+    "voice_on_open": False,
     "claude_code_folder": "~",
     "nightly_time": "03:00",
     "sidekick_max_steps": 60,

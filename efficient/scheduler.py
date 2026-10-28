@@ -1,7 +1,7 @@
-"""Windows Task Scheduler + autostart integration.
+﻿"""Windows Task Scheduler + autostart integration.
 
 The nightly task wakes the PC from sleep, only runs on AC power, and runs
-`pythonw -m sentient nightly` (knowledge build + proactive cards).
+`pythonw -m efficient nightly` (knowledge build + proactive cards).
 """
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import tempfile
 import winreg
 from pathlib import Path
 
-TASK_NAME = "SentientWin Nightly"
+TASK_NAME = "EfficientAI Nightly"
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 
@@ -24,7 +24,7 @@ def _pythonw() -> str:
 
 TASK_XML = """<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <RegistrationInfo><Description>Sentient for Windows: nightly knowledge build and morning suggestions.</Description></RegistrationInfo>
+  <RegistrationInfo><Description>Efficient AI: nightly knowledge build and morning suggestions.</Description></RegistrationInfo>
   <Triggers>
     <CalendarTrigger>
       <StartBoundary>2026-01-01T{time}:00</StartBoundary>
@@ -44,7 +44,7 @@ TASK_XML = """<?xml version="1.0" encoding="UTF-16"?>
   <Actions Context="Author">
     <Exec>
       <Command>{python}</Command>
-      <Arguments>-m sentient nightly</Arguments>
+      <Arguments>-m efficient nightly</Arguments>
       <WorkingDirectory>{cwd}</WorkingDirectory>
     </Exec>
   </Actions>
@@ -53,7 +53,7 @@ TASK_XML = """<?xml version="1.0" encoding="UTF-16"?>
 
 def install_nightly(time: str = "03:00") -> None:
     xml = TASK_XML.format(time=time, python=_pythonw(), cwd=PROJECT_DIR)
-    path = Path(tempfile.gettempdir()) / "sentient_task.xml"
+    path = Path(tempfile.gettempdir()) / "efficient_task.xml"
     path.write_text(xml, encoding="utf-16")
     subprocess.run(["schtasks", "/Create", "/TN", TASK_NAME, "/XML", str(path), "/F"], check=True)
     path.unlink(missing_ok=True)
@@ -67,7 +67,7 @@ def uninstall_nightly() -> None:
 
 
 def create_shortcuts() -> list[str]:
-    """Start Menu + Desktop shortcuts named "Sentient" that launch the tray app with no console window."""
+    """Start Menu + Desktop shortcuts named "Efficient AI" that launch the tray app with no console window."""
     import os
 
     import win32com.client
@@ -75,22 +75,23 @@ def create_shortcuts() -> list[str]:
     shell = win32com.client.Dispatch("WScript.Shell")
     made = []
     for folder in (Path(os.environ["APPDATA"]) / "Microsoft/Windows/Start Menu/Programs", Path(shell.SpecialFolders("Desktop"))):
-        lnk = shell.CreateShortcut(str(folder / "Sentient.lnk"))
+        lnk = shell.CreateShortcut(str(folder / "Efficient AI.lnk"))
         lnk.TargetPath = _pythonw()
-        lnk.Arguments = "-m sentient run"
+        lnk.Arguments = "-m efficient run"
         lnk.WorkingDirectory = str(PROJECT_DIR)
-        lnk.Description = "Sentient for Windows"
+        lnk.Description = "Efficient AI"
+        lnk.IconLocation = str(PROJECT_DIR / "assets" / "efficient.ico")
         lnk.Save()
-        made.append(str(folder / "Sentient.lnk"))
+        made.append(str(folder / "Efficient AI.lnk"))
     return made
 
 
 def set_autostart(on: bool) -> None:
     with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as k:
         if on:
-            winreg.SetValueEx(k, "SentientWin", 0, winreg.REG_SZ, f'"{_pythonw()}" -m sentient run')
+            winreg.SetValueEx(k, "EfficientAI", 0, winreg.REG_SZ, f'"{_pythonw()}" -m efficient run')
         else:
             try:
-                winreg.DeleteValue(k, "SentientWin")
+                winreg.DeleteValue(k, "EfficientAI")
             except FileNotFoundError:
                 pass

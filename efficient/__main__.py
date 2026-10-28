@@ -1,4 +1,4 @@
-"""CLI: python -m sentient <command>
+﻿"""CLI: python -m efficient <command>
 
   run                 start the tray app (hotkeys, Double Tap, cards)
   setup               create config, install the nightly task and autostart
@@ -23,7 +23,7 @@ def _logging():
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        handlers=[logging.FileHandler(LOG_DIR / "sentient.log", encoding="utf-8"), logging.StreamHandler()],
+        handlers=[logging.FileHandler(LOG_DIR / "efficient.log", encoding="utf-8"), logging.StreamHandler()],
     )
 
 
@@ -43,7 +43,7 @@ def main(argv: list[str]) -> int:
         scheduler.set_autostart(True)
         scheduler.create_shortcuts()
         print(f"Config:    {CONFIG_PATH}\nKnowledge: {KNOWLEDGE_DIR}\nNightly task installed for {cfg['nightly_time']}, autostart enabled,"
-              " and a 'Sentient' shortcut added to the Start Menu and Desktop.")
+              " and an 'Efficient AI' shortcut added to the Start Menu and Desktop.")
     elif cmd == "uninstall":
         from . import scheduler
 

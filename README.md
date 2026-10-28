@@ -1,76 +1,78 @@
-# Sentient for Windows (personal, open source)
+<p align="center">
+  <img src="assets/logo.png" width="112" alt="Efficient AI logo">
+</p>
 
-A Windows rebuild of the features in [Sentient OS](https://sentient-os.ai/) for my own use.
+<h1 align="center">Efficient AI</h1>
 
-| Sentient OS (Mac) | Here | How |
-|---|---|---|
-| Click the notch → **Sidekick** takes over with its own cursor | `Ctrl+Alt+Space` (or tray icon) | Claude computer toolset + `pyautogui`, DPI-aware screenshots via `mss` |
-| Double-tap right ⌘ → **Double Tap** reply in your voice | Double-tap **Right Ctrl** | UI Automation reads the focused window, plus a screenshot, `writingstyle.md` and your knowledge → draft → paste at the caret |
-| **Proactive intelligence** cards each morning | Cards window on login / tray → *Morning cards* | Nightly model pass over the knowledge base; nothing runs until you click |
-| Nightly 3 AM run that wakes the Mac | Task Scheduler: `WakeToRun`, AC power only | `python -m sentient setup` |
-| Reads Notes, Mail, Calendar, Files, Screenshots | Sticky Notes, Outlook mail + calendar, folders (txt/md/pdf/docx), Screenshots (Windows OCR), OneNote exports | `sentient/sources.py` |
-| Knowledge as editable files you own | `%APPDATA%\SentientWin\Knowledge\*.md` | Tray → *Open knowledge folder* |
-| Your choice of AI / fully offline | `anthropic`, `ollama`, `openai_compat` (LM Studio, llama.cpp) | `config.json` |
-| Kill switch | `Ctrl+Alt+Esc`, or move the mouse into a screen corner | A purple border shows while Sidekick is in control |
+<p align="center">An open-source personal AI assistant for Windows.<br>It learns your work overnight, drafts replies in your voice, and finishes tasks on your PC while you watch.</p>
+
+---
+
+## What it does
+
+| Feature | How you use it |
+|---|---|
+| **Sidekick** – it drives your mouse and keyboard to finish a task | `Ctrl+Alt+Space`, then type or speak the task |
+| **Voice** – speak instead of typing, in any box | `Ctrl+M` in the Sidekick box (Windows voice typing, free) |
+| **Double Tap** – a reply drafted in your voice | Double-tap **Right Ctrl** in any email or chat |
+| **Morning cards** – what needs you today, ready to act on | Shown at login; press `1`–`9` to act |
+| **Nightly knowledge** – reads your mail, notes and files at 3 AM | Automatic; it's all plain files you can edit |
+| **Home window** | `Ctrl+Alt+E`, the tray icon, or the Start Menu |
+| **Claude Code / Cowork** | Buttons on the home window (they use your Claude plan) |
+
+Everything works from the keyboard. Every window lists its shortcuts at the bottom, and `Esc` always closes.
 
 ## Install
 
 ```powershell
-cd sentient-win
-python -m venv .venv
-.venv\Scripts\activate
-pip install -e .
-$env:ANTHROPIC_API_KEY = "sk-ant-..."   # or: ant auth login
-python -m sentient sources              # dry run: what it can read (no AI calls)
-python -m sentient build                # first knowledge build
-python -m sentient setup                # 3 AM nightly task + start at login
-python -m sentient run                  # tray app
+git clone https://github.com/Ninjacat10/efficient-ai
+cd efficient-ai
+uv venv --python 3.12 .venv
+uv pip install --python .venv\Scripts\python.exe -e .
+setx GEMINI_API_KEY "your-key"          # free key from aistudio.google.com
+.venv\Scripts\python -m efficient setup  # Start Menu + Desktop icon, start at login, nightly run
 ```
 
-You need Python 3.10+ on Windows 10 or 11. Outlook sources need classic desktop Outlook; "new Outlook" has no COM API. If you use it, connect Gmail or Microsoft 365 in classic Outlook, or add a Graph connector.
+Then open **Efficient AI** from the Start Menu.
 
-## Commands
+## Choose your AI
 
-`run` · `setup` · `uninstall` · `nightly` · `build [--full]` · `suggest` · `sidekick "task"` · `sources`
+Set these in `%APPDATA%\EfficientAI\config.json` (home window → Settings):
 
-## Configuration
+| Setting | Options |
+|---|---|
+| `provider` (knowledge + cards) | `gemini`, `claude_code` (your Claude plan), `anthropic`, `ollama` (offline), `openai_compat` |
+| `doubletap_provider` | same as above |
+| `sidekick_provider` | `gemini` or `anthropic` (it needs a model that can see the screen and call tools) |
 
-`%APPDATA%\SentientWin\config.json` is created on first run. In it you can:
-- Turn each source on or off, and set the folders it reads (`sources`).
-- Pick providers: set `provider` for the heavy work and `doubletap_provider` for replies. For example, run Double Tap on `ollama` to keep it local and fast.
-- Change hotkeys, the nightly time (`nightly_time`) and `sidekick_max_steps`.
+Free Gemini keys have per-minute and daily limits. Efficient AI waits and retries when it hits them, so long Sidekick tasks may pause, but they won't fail.
 
-**Sidekick needs Claude**, because it uses the computer-use toolset. Everything else also works with local models, so the knowledge build can run 100% offline on Ollama.
+## Mail and data sources
 
-## Privacy
+- **Outlook** (classic desktop app): mail and calendar, including school or work Microsoft 365 accounts you've added to it.
+- **Yahoo, Gmail, iCloud** over IMAP with an app password (`sources.imap_mail` in config).
+- Sticky Notes, folders (txt/md/pdf/docx), Screenshots (Windows OCR), OneNote exports.
 
-- The source readers run locally. Text goes to a model only during the nightly digest, Double Tap and Sidekick. With `ollama` set, that model is on your PC too.
-- Nothing records your screen in the background. Screenshots are taken only while Double Tap or Sidekick is running.
-- The prompts tell the model to leave secrets out of the knowledge base. Still, check `Knowledge\` now and then. You can edit or delete anything in it.
+## Privacy and safety
 
-## Safety notes on Sidekick
-
-Sidekick drives your **real** desktop. It must call `ask_user` for approval before it pays, sends, submits, deletes or accepts anything, and it never types passwords or card numbers. Approval prompts are rules in the prompt, not hard guarantees: stay nearby while it works. Windows also blocks it from controlling elevated (admin) windows (UIPI).
+- The readers run on your PC. Text goes to the model you chose only during the nightly build, Double Tap and Sidekick.
+- Nothing records your screen in the background.
+- Sidekick asks before it pays, sends, submits or deletes anything, and never types passwords. Stop it any time with `Ctrl+Alt+Esc` or by moving the mouse into a screen corner.
 
 ## Layout
 
 ```
-sentient/
-  config.py     settings + paths
-  llm.py        Anthropic / Ollama / OpenAI-compatible providers
-  sources.py    Outlook, Sticky Notes, folders, screenshots (OCR), OneNote exports
+efficient/
+  app.py        tray app, hotkeys, home window wiring
+  ui.py         all windows (home, Sidekick box + voice, status, Double Tap, cards)
+  brand.py      logo and colors
+  sidekick.py   computer-use agent (Claude or Gemini)
+  doubletap.py  reads the focused window, drafts, pastes
+  sources.py    Outlook, IMAP, Sticky Notes, folders, screenshots
   knowledge.py  nightly build -> Knowledge/*.md
   proactive.py  morning cards
-  screen.py     capture, scaling, DPI
-  sidekick.py   computer-use agent loop
-  doubletap.py  double-tap listener, window reader, drafting, paste
-  ui.py         Tk windows (command bar, border, draft popup, cards, approvals)
-  scheduler.py  Task Scheduler + autostart
-  app.py        tray app wiring
+  llm.py        providers
+  scheduler.py  nightly task, autostart, shortcuts
 ```
 
-## Not done yet (ideas)
-
-- WhatsApp and Messages history. WhatsApp Desktop encrypts its local DB, so the practical route is reading the open chat through UI Automation, which Double Tap already does.
-- A Gmail/Graph API connector for people on "new Outlook".
-- An embedding search index once the knowledge base outgrows the model's context.
+Inspired by [Sentient OS](https://sentient-os.ai/) for Mac. MIT licensed.

@@ -10,9 +10,7 @@ from pathlib import Path
 
 import keyboard
 import pystray
-from PIL import Image, ImageDraw
-
-from . import knowledge, proactive
+from . import brand, knowledge, proactive
 from .config import CONFIG_PATH, KNOWLEDGE_DIR, load_config
 from .doubletap import DoubleTap, DoubleTapListener
 from .sidekick import Sidekick
@@ -22,18 +20,11 @@ log = logging.getLogger(__name__)
 INSTANCE_PORT = 47823
 
 
-def _icon() -> Image.Image:
-    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    d.ellipse((6, 6, 58, 58), fill=(124, 108, 255, 255))
-    d.ellipse((22, 22, 42, 42), fill=(21, 22, 26, 255))
-    return img
-
-
 class App:
     def __init__(self):
         self.cfg = load_config()
         self.ui = UI()
+        self.ui.voice_on_open = self.cfg.get("voice_on_open", False)
         self.sidekick: Sidekick | None = None
         self.busy = threading.Lock()
         self.dt = DoubleTap()
@@ -133,17 +124,17 @@ class App:
     def show_home(self):
         hk = self.cfg["hotkeys"]
         self.ui.call(self.ui.home, [
-            ("Hand off a task", f"Sidekick drives your PC  ·  {hk['sidekick'].title()}", lambda: self.open_sidekick()),
+            ("Hand off a task", f"Type or speak it, Sidekick does it  ·  {hk['sidekick'].title()}", lambda: self.open_sidekick()),
             ("Morning cards", "What needs you today", self.show_cards),
             ("Refresh knowledge now", "Read new mail, notes and files", self.refresh_now),
             ("Claude Code", "Coding agent in a terminal, on your Claude plan", self.open_claude_code),
             ("Claude app / Cowork", "Open the Claude desktop app", self.open_claude_desktop),
             ("Knowledge folder", "Everything it knows about you, as files", lambda: os.startfile(KNOWLEDGE_DIR)),
             ("Settings", "config.json: providers, mail accounts, hotkeys", lambda: os.startfile(CONFIG_PATH)),
-        ], f"Double-tap {hk['doubletap_key'].title()} in any chat or email to draft a reply.")
+        ], f"{hk.get('home', 'ctrl+alt+e').title()} opens this  ·  double-tap {hk['doubletap_key'].title()} to draft a reply")
 
     def _listen_for_second_launch(self):
-        """Opening Sentient again (Start Menu, desktop icon) shows the home window instead of a second copy."""
+        """Opening Efficient AI again (Start Menu, desktop icon) shows the home window instead of a second copy."""
         def serve():
             while True:
                 conn, _ = self._sock.accept()
@@ -167,10 +158,11 @@ class App:
         hk = self.cfg["hotkeys"]
         keyboard.add_hotkey(hk["sidekick"], self.open_sidekick)
         keyboard.add_hotkey(hk["kill_switch"], self.stop_sidekick)
+        keyboard.add_hotkey(hk.get("home", "ctrl+alt+e"), self.show_home)
         DoubleTapListener(self.double_tap, hk["doubletap_key"], hk["doubletap_window_ms"]).start()
 
         menu = pystray.Menu(
-            pystray.MenuItem("Open Sentient", lambda: self.show_home(), default=True),
+            pystray.MenuItem("Open Efficient", lambda: self.show_home(), default=True),
             pystray.MenuItem("Hand off a task (Sidekick)", lambda: self.open_sidekick()),
             pystray.MenuItem("Claude Code", lambda: self.open_claude_code()),
             pystray.MenuItem("Claude app / Cowork", lambda: self.open_claude_desktop()),
@@ -181,7 +173,7 @@ class App:
             pystray.MenuItem("Stop Sidekick", lambda: self.stop_sidekick()),
             pystray.MenuItem("Quit", lambda icon: (icon.stop(), self.ui.call(self.ui.root.quit))),
         )
-        tray = pystray.Icon("sentient", _icon(), "Sentient", menu)
+        tray = pystray.Icon("efficient", brand.logo(64), "Efficient AI", menu)
         tray.run_detached()
 
         if any(c["status"] == "new" for c in proactive.load()):

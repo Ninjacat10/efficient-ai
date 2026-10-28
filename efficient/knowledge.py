@@ -83,7 +83,7 @@ def read_topic(topic: str) -> str:
 
 
 def knowledge_context(max_chars: int = 40_000) -> str:
-    """Everything Sentient knows, concatenated - fed to Sidekick, Double Tap and suggestions."""
+    """Everything Efficient knows, concatenated - fed to Sidekick, Double Tap and suggestions."""
     parts = [f"# {t}.md\n{read_topic(t)}" for t in TOPICS if read_topic(t)]
     daily = sorted((KNOWLEDGE_DIR / "daily").glob("*.md"))[-3:] if (KNOWLEDGE_DIR / "daily").exists() else []
     parts += [f"# daily/{p.name}\n{p.read_text(encoding='utf-8')}" for p in daily]
