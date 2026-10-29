@@ -48,6 +48,8 @@ DEFAULTS: dict = {
         "imap_mail": {"enabled": False, "days": 14, "max_items": 300, "accounts": [
             {"name": "yahoo", "host": "imap.mail.yahoo.com", "user": "you@yahoo.com", "password_env": "YAHOO_APP_PASSWORD", "sent": "Sent"},
         ]},
+        # Claude / ChatGPT data exports (drop the zip in ~/Downloads or a folder listed here) + Claude Code sessions.
+        "ai_chats": {"enabled": True, "export_paths": ["~/Downloads"], "claude_code": True, "max_claude": 400, "max_chatgpt": 150},
         "sticky_notes": {"enabled": True},
         "screenshots": {"enabled": True, "paths": ["~/Pictures/Screenshots"]},
         "onenote_export": {"enabled": False, "paths": []},

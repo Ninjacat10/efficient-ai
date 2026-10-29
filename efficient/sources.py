@@ -245,6 +245,84 @@ def imap_mail(cfg: dict, since: float) -> Iterator[dict]:
             log.warning("IMAP %s failed: %s", acct.get("name"), e)
 
 
+def _chat_text(turns: list[tuple[str, str]]) -> str:
+    return "\n".join(f"{who}: {text.strip()}" for who, text in turns if text and text.strip())[:MAX_CHARS]
+
+
+def _parse_export(path: Path) -> Iterator[tuple[str, str, str, float, str]]:
+    """conversations.json from a Claude or ChatGPT data export -> (app, id, title, timestamp, text)."""
+    import json
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    for c in data if isinstance(data, list) else []:
+        if "chat_messages" in c:  # Claude
+            turns = [("Me" if m.get("sender") == "human" else "Claude",
+                      m.get("text") or " ".join(p.get("text", "") for p in m.get("content", []) if isinstance(p, dict)))
+                     for m in c["chat_messages"]]
+            ts = dt.datetime.fromisoformat(c.get("updated_at", "1970-01-01T00:00:00+00:00").replace("Z", "+00:00")).timestamp()
+            yield "claude", c.get("uuid", ""), c.get("name") or "Claude chat", ts, _chat_text(turns)
+        elif "mapping" in c:  # ChatGPT
+            nodes = sorted((n["message"] for n in c["mapping"].values() if n.get("message")), key=lambda m: m.get("create_time") or 0)
+            turns = [("Me" if m["author"]["role"] == "user" else "ChatGPT",
+                      " ".join(p for p in (m.get("content", {}).get("parts") or []) if isinstance(p, str)))
+                     for m in nodes if m["author"]["role"] in ("user", "assistant")]
+            yield "chatgpt", c.get("id", ""), c.get("title") or "ChatGPT chat", c.get("update_time") or 0, _chat_text(turns)
+
+
+def ai_chats(cfg: dict, since: float) -> Iterator[dict]:
+    """Your Claude and ChatGPT conversations - what you ask AI says a lot about what you're working on.
+
+    Reads conversations.json from data exports (zip or unzipped) in cfg["export_paths"], plus Claude Code
+    sessions on this PC. Claude comes first and gets the bigger share (cfg["max_claude"] vs cfg["max_chatgpt"]).
+    """
+    import json
+    import zipfile
+
+    found: list[tuple[str, str, str, float, str]] = []
+    for root in cfg.get("export_paths", []):
+        root = Path(os.path.expanduser(root))
+        if not root.exists():
+            continue
+        for f in [root] if root.is_file() else list(root.rglob("conversations.json")) + list(root.glob("*.zip")):
+            try:
+                if f.suffix == ".zip":
+                    with zipfile.ZipFile(f) as z:
+                        names = [n for n in z.namelist() if n.endswith("conversations.json")]
+                        if not names:
+                            continue
+                        tmp = Path(tempfile.mkdtemp()) / "conversations.json"
+                        tmp.write_bytes(z.read(names[0]))
+                        found += _parse_export(tmp)
+                        shutil.rmtree(tmp.parent, ignore_errors=True)
+                else:
+                    found += _parse_export(f)
+            except Exception as e:
+                log.info("skip chat export %s: %s", f, e)
+
+    if cfg.get("claude_code", True):  # your own prompts from Claude Code sessions on this PC
+        for f in (Path.home() / ".claude" / "projects").rglob("*.jsonl"):
+            try:
+                mtime = f.stat().st_mtime
+                if mtime <= since:
+                    continue
+                turns = []
+                for line in f.open(encoding="utf-8", errors="ignore"):
+                    ev = json.loads(line)
+                    msg = ev.get("message") or {}
+                    if ev.get("type") == "user" and isinstance(msg.get("content"), str):
+                        turns.append(("Me", msg["content"]))
+                if turns:
+                    found.append(("claude", str(f), f"Claude Code: {f.parent.name}", mtime, _chat_text(turns)))
+            except Exception as e:
+                log.debug("skip %s: %s", f, e)
+
+    limits = {"claude": cfg.get("max_claude", 400), "chatgpt": cfg.get("max_chatgpt", 150)}
+    for app in ("claude", "chatgpt"):  # Claude first
+        chats = sorted((c for c in found if c[0] == app and c[3] > since and c[4]), key=lambda c: -c[3])[:limits[app]]
+        for _, cid, title, ts, text in chats:
+            yield {"source": f"{app}_chat", "id": cid, "title": title, "when": _iso(ts), "text": text, "meta": {"app": app}}
+
+
 def onenote_export(cfg: dict, since: float) -> Iterator[dict]:
     # OneNote has no stable local DB; export notebooks to .docx/.pdf/.md and point this at the folder.
     yield from (dict(i, source="note") for i in folders(cfg, since))
@@ -255,6 +333,7 @@ REGISTRY = {
     "outlook_mail": outlook_mail,
     "outlook_calendar": outlook_calendar,
     "imap_mail": imap_mail,
+    "ai_chats": ai_chats,
     "sticky_notes": sticky_notes,
     "screenshots": screenshots,
     "onenote_export": onenote_export,
