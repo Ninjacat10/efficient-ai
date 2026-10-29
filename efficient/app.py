@@ -198,6 +198,23 @@ class App:
         threading.Thread(target=serve, daemon=True).start()
 
     # ---- wiring ------------------------------------------------------------
+    def _watch_claude(self):
+        """Learn from each Claude Code conversation shortly after it goes quiet - no waiting for 3 AM."""
+        import time
+
+        projects = Path.home() / ".claude" / "projects"
+        seen = time.time()
+        while True:
+            time.sleep(300)
+            try:
+                latest = max((f.stat().st_mtime for f in projects.rglob("*.jsonl")), default=0)
+                if latest > seen and time.time() - latest > 180:  # changed, and idle for 3 minutes
+                    seen = latest
+                    summary = knowledge.build(only=["ai_chats"])
+                    log.info("learned from Claude sessions: %s", summary)
+            except Exception:
+                log.exception("Claude session learning failed")
+
     def run(self):
         self._sock = socket.socket()
         try:
@@ -211,6 +228,8 @@ class App:
 
         hk = self.cfg["hotkeys"]
         keyboard.add_hotkey(hk["sidekick"], self.open_sidekick)
+        if self.cfg["sources"].get("ai_chats", {}).get("claude_code", True):
+            threading.Thread(target=self._watch_claude, daemon=True).start()
         keyboard.add_hotkey(hk["kill_switch"], self.stop_sidekick)
         keyboard.add_hotkey(hk.get("home", "ctrl+alt+e"), self.show_home)
         keyboard.add_hotkey(hk.get("fill_form", "ctrl+alt+f"), self.fill_form)

@@ -110,13 +110,14 @@ def knowledge_context(max_chars: int = 40_000) -> str:
     return "\n\n".join(parts)[:max_chars]
 
 
-def build(full: bool = False) -> dict:
-    """Run one knowledge build. Returns a small summary dict."""
+def build(full: bool = False, only: list[str] | None = None) -> dict:
+    """Run one knowledge build. `only` limits it to some sources (e.g. ["ai_chats"] after a Claude session)."""
     ensure_dirs()
     cfg, state = load_config(), load_state()
     if full:
         state["cursors"] = {}
-    items = sources.collect(cfg["sources"], state)
+    srcs = {k: v for k, v in cfg["sources"].items() if not only or k in only}
+    items = sources.collect(srcs, state)
     if not items:
         save_state(state)
         log.info("nothing new")
@@ -128,7 +129,9 @@ def build(full: bool = False) -> dict:
 
     day = dt.date.today().isoformat()
     (KNOWLEDGE_DIR / "daily").mkdir(exist_ok=True)
-    (KNOWLEDGE_DIR / "daily" / f"{day}.md").write_text(f"# {day}\n\n{digest}\n", encoding="utf-8")
+    daily = KNOWLEDGE_DIR / "daily" / f"{day}.md"
+    prev = daily.read_text(encoding="utf-8") if daily.exists() else f"# {day}\n"
+    daily.write_text(f"{prev.rstrip()}\n\n{digest}\n", encoding="utf-8")  # several builds a day add up
 
     sent = [i for i in items if i["source"] == "mail_sent"]
     for topic in TOPICS:

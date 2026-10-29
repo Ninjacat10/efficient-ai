@@ -1,4 +1,4 @@
-"""Settings and on-disk layout.
+﻿"""Settings and on-disk layout.
 
 Everything lives under %APPDATA%\\EfficientAI unless EFFICIENT_HOME is set:
   config.json       settings (sources, provider, hotkeys)
@@ -55,7 +55,7 @@ DEFAULTS: dict = {
         "onenote_export": {"enabled": False, "paths": []},
     },
     "hotkeys": {
-        "sidekick": "ctrl+alt+space",
+        "sidekick": "ctrl+shift+space",  # not ctrl+alt+space: the Claude app uses that
         "doubletap_key": "right ctrl",
         "doubletap_window_ms": 350,
         "kill_switch": "ctrl+alt+esc",
