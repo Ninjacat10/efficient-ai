@@ -1,4 +1,4 @@
-﻿"""Settings and on-disk layout.
+"""Settings and on-disk layout.
 
 Everything lives under %APPDATA%\\EfficientAI unless EFFICIENT_HOME is set:
   config.json       settings (sources, provider, hotkeys)
@@ -34,7 +34,7 @@ DEFAULTS: dict = {
     "gemini_url": "https://generativelanguage.googleapis.com/v1beta/openai",
     # Free keys get only ~20 requests/day on 2.5 Flash; the 3.5 models have far more room and are faster.
     "gemini_model": "gemini-3.5-flash",
-    "gemini_fast_model": "gemini-3.5-flash-lite",
+    "gemini_fast_model": "gemini-3.5-flash",  # with thinking off; measured faster than Flash-Lite on free keys
     # Fast layer for form filling: "gemini_fast" or "ollama_fast" (local open model, e.g. gemma).
     "fast_provider": "gemini_fast",
     "ollama_fast_model": "gemma3:4b",
@@ -61,7 +61,8 @@ DEFAULTS: dict = {
     },
     "hotkeys": {
         "sidekick": "ctrl+shift+space",  # not ctrl+alt+space: the Claude app uses that
-        "doubletap_key": "right ctrl",
+        "doubletap_key": "ctrl",  # left Ctrl: many laptops have no Right Ctrl
+        "reply": "ctrl+alt+r",
         "doubletap_window_ms": 350,
         "kill_switch": "ctrl+alt+esc",
         "home": "ctrl+alt+e",
@@ -72,6 +73,8 @@ DEFAULTS: dict = {
     "claude_code_folder": "~",
     # Files about you (second brain, resume, cover-letter notes) given to every Sidekick and Double Tap run.
     "profile_files": [],
+    # Your second brain folder: Efficient AI writes form answers and an activity log into its raw\efficient-ai folder.
+    "second_brain_dir": "",
     # Resume to upload when a job application asks for one.
     "resume_path": "",
     "nightly_time": "03:00",

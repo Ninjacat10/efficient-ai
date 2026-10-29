@@ -49,6 +49,12 @@ class App:
                 self.ui.call(self.ui.show_border, True)
                 self.sidekick = Sidekick(ask=self.ui.ask_blocking, status=status, pause=self.ui.pause_blocking)
                 result = self.sidekick.run(task)
+                try:
+                    from . import memory
+
+                    memory.log_activity("Sidekick", task, result)
+                except Exception:
+                    log.exception("couldn't write activity log")
             except Exception as e:
                 log.exception("sidekick failed")
                 result = f"Sidekick hit an error: {e}"
@@ -176,7 +182,7 @@ class App:
                 (hk.get("home", "ctrl+alt+e").title(), "Open the Efficient AI home window"),
                 (hk["sidekick"].title(), "Sidekick: type or speak a task, and it does it on your screen"),
                 (hk.get("fill_form", "ctrl+alt+f").title(), "Fill the job application or form in front of you"),
-                (f"{hk['doubletap_key'].title()} ×2", "Double-tap in an email or chat to draft a reply in your voice"),
+                (f"{hk['doubletap_key'].title()} ×2  or  {hk.get('reply', 'ctrl+alt+r').title()}", "In an email or chat: draft a reply in your voice"),
                 (hk["kill_switch"].title(), "Stop Sidekick right now"),
                 ("Mouse to a corner", "Emergency stop: slam the mouse into any screen corner"),
             ]),
@@ -269,6 +275,7 @@ class App:
         keyboard.add_hotkey(hk["kill_switch"], self.stop_sidekick)
         keyboard.add_hotkey(hk.get("home", "ctrl+alt+e"), self.show_home)
         keyboard.add_hotkey(hk.get("fill_form", "ctrl+alt+f"), self.fill_form)
+        keyboard.add_hotkey(hk.get("reply", "ctrl+alt+r"), lambda: self.double_tap())
         DoubleTapListener(self.double_tap, hk["doubletap_key"], hk["doubletap_window_ms"]).start()
 
         menu = pystray.Menu(

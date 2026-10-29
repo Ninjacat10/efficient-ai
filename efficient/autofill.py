@@ -16,6 +16,7 @@ import time
 
 import pyautogui
 
+from . import memory
 from .config import load_config
 from .knowledge import knowledge_context
 from .llm import get_provider
@@ -25,6 +26,12 @@ from .sidekick import _field_value, _paste, find_fields
 log = logging.getLogger(__name__)
 
 PROMPT = """Fill this form for the user from what you know about them.
+
+<saved_answers>
+Answers the user has personally confirmed on earlier forms. These win over everything else - reuse them
+whenever a field asks the same thing, even if worded differently.
+{saved}
+</saved_answers>
 
 <about_user>
 {profile}
@@ -76,6 +83,15 @@ def _describe(fields: list) -> str:
     return "\n".join(rows)
 
 
+def _window_title() -> str:
+    try:
+        import win32gui
+
+        return win32gui.GetWindowText(win32gui.GetForegroundWindow())[:120]
+    except Exception:
+        return ""
+
+
 def _parse(text: str) -> dict:
     m = re.search(r"\{.*\}", text, re.S)
     return json.loads(m.group(0)) if m else {}
@@ -122,34 +138,54 @@ def fill(status=print) -> str:
         fields = find_fields()
         if not fields:
             return "No form fields found in the front window. Click into the form page first, or use Sidekick."
-        desc = _describe(fields)
-        status(f"Matching your info to {len(fields)} fields...")
-        llm = get_provider(cfg.get("fast_provider", "gemini_fast"))
-        plan = _parse(llm.chat("You fill web forms accurately. Output JSON only.",
-                               PROMPT.format(profile=knowledge_context(30_000), fields=desc), effort="low"))
+        # A page that's already mostly filled means you've reviewed it: learn your answers first.
+        current = [(c.Name, _field_value(c)) for c in fields if c.Name]
+        filled = [p for p in current if p[1] and not memory.PLACEHOLDER.match(p[1].strip())]
+        learned = memory.learn(filled, source=_window_title()) if len(filled) >= max(2, len(fields) // 2) else 0
+        empty = [c for c in fields if not _field_value(c) or memory.PLACEHOLDER.match(_field_value(c).strip())]
+
         done, wrong = [], []
-        for key, value in (plan.get("fill") or {}).items():
-            if not str(key).isdigit() or not 0 < int(key) <= len(fields) or value in (None, ""):
-                continue
-            c = fields[int(key) - 1]
-            label = c.Name or f"field {key}"
+
+        def put(c, value: str):
+            label = c.Name or "field"
             status(f"Filling {label}...")
             try:
                 c.GetScrollItemPattern().ScrollIntoView()
             except Exception:
                 pass
             if c.ControlTypeName == "ComboBoxControl":
-                _select(c, str(value))
+                _select(c, value)
             else:
                 r = c.BoundingRectangle
                 pyautogui.click((r.left + r.right) // 2, (r.top + r.bottom) // 2)
                 settle(0.1)
                 pyautogui.hotkey("ctrl", "a")
-                _paste(str(value))
+                _paste(value)
             got = _field_value(c)
-            (done if not got or str(value).lower()[:6] in got.lower() else wrong).append(label)
+            (done if not got or value.lower()[:6] in got.lower() else wrong).append(label)
+
+        # 1) Instant: fields you've answered before - filled right away, no AI call.
+        rest = []
+        for c in empty:
+            hit = memory.recall(c.Name or "")
+            put(c, hit) if hit else rest.append(c)
+
+        # 2) One quick AI call for the new fields only.
+        plan: dict = {}
+        if rest:
+            status(f"Asking AI about {len(rest)} new field{'s' if len(rest) > 1 else ''}...")
+            llm = get_provider(cfg.get("fast_provider", "gemini_fast"))
+            plan = _parse(llm.chat("You fill web forms accurately. Output JSON only.",
+                                   PROMPT.format(saved=memory.answers_text() or "(none yet)",
+                                                 profile=knowledge_context(20_000), fields=_describe(rest)), effort="low"))
+            for key, value in (plan.get("fill") or {}).items():
+                if str(key).isdigit() and 0 < int(key) <= len(rest) and value not in (None, ""):
+                    put(rest[int(key) - 1], str(value))
     ask = plan.get("ask") or []
     msg = f"Filled {len(done)} fields in {time.time() - t0:.0f}s."
+    if learned:
+        msg = f"Learned {learned} of your answers. " + msg
+    memory.log_activity("Form fill", _window_title(), msg)
     if wrong:
         msg += f" Check: {', '.join(wrong)}."
     if ask:

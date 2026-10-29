@@ -107,9 +107,9 @@ class DoubleTap:
 
 
 class DoubleTapListener:
-    """Detects two quick presses of a single key (default Right Ctrl) with nothing else in between."""
+    """Detects two quick presses of a single key (default Ctrl) with nothing else in between."""
 
-    def __init__(self, on_trigger, key: str = "right ctrl", window_ms: int = 350):
+    def __init__(self, on_trigger, key: str = "ctrl", window_ms: int = 350):
         self.on_trigger, self.key, self.window = on_trigger, key, window_ms / 1000
         self.last = 0.0
 

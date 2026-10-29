@@ -86,7 +86,11 @@ def profile_context(max_chars: int = 50_000) -> list[str]:
     """The files listed in config "profile_files", read in full (txt, md, pdf, docx)."""
     from pathlib import Path
 
-    out, used = [], 0
+    from . import memory
+
+    saved = memory.answers_text()
+    out = [f"# Form answers you confirmed (use these first)\n{saved}"] if saved else []
+    used = len(saved)
     for raw in load_config().get("profile_files", []):
         p = Path(raw).expanduser()
         text = sources._read_file(p, limit=max_chars) if p.is_file() else ""

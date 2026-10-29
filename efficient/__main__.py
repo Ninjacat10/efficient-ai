@@ -28,6 +28,20 @@ def _logging():
     )
 
 
+def _wait_for_internet(seconds: int) -> bool:
+    import socket
+    import time
+
+    end = time.time() + seconds
+    while time.time() < end:
+        try:
+            socket.create_connection(("generativelanguage.googleapis.com", 443), timeout=5).close()
+            return True
+        except OSError:
+            time.sleep(10)
+    return False
+
+
 def main(argv: list[str]) -> int:
     _logging()
     cmd = argv[0] if argv else "run"
@@ -54,8 +68,18 @@ def main(argv: list[str]) -> int:
     elif cmd == "nightly":
         from . import knowledge, proactive
 
-        knowledge.build()
-        proactive.generate()
+        log = logging.getLogger("efficient.nightly")
+        log.info("nightly run starting")
+        if not _wait_for_internet(600):  # after waking from sleep, Wi-Fi takes a moment to reconnect
+            log.error("no internet after 10 minutes - skipping tonight")
+            return 1
+        try:
+            log.info("knowledge build: %s", knowledge.build())
+            proactive.generate()
+            log.info("nightly run finished")
+        except Exception:
+            log.exception("nightly run failed")
+            return 1
     elif cmd == "build":
         from . import knowledge
 

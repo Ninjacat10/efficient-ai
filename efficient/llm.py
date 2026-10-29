@@ -28,7 +28,13 @@ def post_with_retry(url: str, tries: int = 6, **kw) -> requests.Response:
     import time
 
     for n in range(tries):
-        r = requests.post(url, **kw)
+        try:
+            r = requests.post(url, **kw)
+        except (requests.ConnectionError, requests.Timeout):  # e.g. Wi-Fi still reconnecting after sleep
+            if n == tries - 1:
+                raise
+            time.sleep(min(60, 5 * 2 ** n))
+            continue
         if r.status_code not in (429, 500, 503) or n == tries - 1:
             return r
         wait = float(r.headers.get("retry-after") or min(60, 5 * 2 ** n))
@@ -81,8 +87,8 @@ class OllamaProvider:
 class OpenAICompatProvider:
     """LM Studio, llama.cpp server, vLLM, Jan... anything speaking /v1/chat/completions."""
 
-    def __init__(self, url: str, model: str, key: str = ""):
-        self.url, self.model, self.key = url.rstrip("/"), model, key
+    def __init__(self, url: str, model: str, key: str = "", extra: dict | None = None):
+        self.url, self.model, self.key, self.extra = url.rstrip("/"), model, key, extra or {}
 
     def chat(self, system: str, text: str, images=(), **_) -> str:
         content = [{"type": "text", "text": text}] + [
@@ -91,7 +97,7 @@ class OpenAICompatProvider:
         r = post_with_retry(
             f"{self.url}/chat/completions",
             headers={"Authorization": f"Bearer {self.key}"} if self.key else {},
-            json={"model": self.model, "messages": [{"role": "system", "content": system}, {"role": "user", "content": content}]},
+            json={"model": self.model, "messages": [{"role": "system", "content": system}, {"role": "user", "content": content}], **self.extra},
             timeout=600,
         )
         r.raise_for_status()
@@ -145,7 +151,8 @@ def get_provider(kind: str | None = None):
     if kind == "claude_code":
         return ClaudeCodeProvider()
     if kind == "gemini_fast":  # small, fast model for quick jobs like filling forms
-        return OpenAICompatProvider(cfg["gemini_url"], cfg["gemini_fast_model"], secret("GEMINI_API_KEY") or cfg["gemini_api_key"])
+        return OpenAICompatProvider(cfg["gemini_url"], cfg["gemini_fast_model"], secret("GEMINI_API_KEY") or cfg["gemini_api_key"],
+                                    {"reasoning_effort": "none"})  # no thinking: the fastest answers
     if kind == "ollama_fast":  # fully local/open-source option, e.g. gemma
         return OllamaProvider(cfg["ollama_url"], cfg.get("ollama_fast_model", cfg["ollama_model"]))
     if kind == "gemini":
