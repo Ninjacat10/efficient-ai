@@ -1,4 +1,4 @@
-"""Tk UI: home window, Sidekick command bar (type or speak), status pill, Double Tap popup, morning cards.
+﻿"""Tk UI: home window, Sidekick command bar (type or speak), status pill, Double Tap popup, morning cards.
 
 All windows live on one Tk main thread; background threads post work with UI.call().
 Everything is keyboard-driven: every window lists its shortcuts in a footer, Esc always closes.
@@ -44,6 +44,29 @@ def _dwm(win: tk.Misc) -> None:
             ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(v), ctypes.sizeof(v))
     except Exception:
         pass
+
+
+def _foreground(win: tk.Misc, widget: tk.Misc | None = None) -> None:
+    """Really bring a window to the front with keyboard focus.
+
+    Windows refuses SetForegroundWindow from a background app (our windows open from a global hotkey),
+    which left Esc and voice typing going to whatever app was in front. Attaching to the foreground
+    thread's input queue is the standard way around that.
+    """
+    win.update_idletasks()
+    try:
+        u = ctypes.windll.user32
+        hwnd = u.GetParent(win.winfo_id()) or win.winfo_id()
+        fg_thread = u.GetWindowThreadProcessId(u.GetForegroundWindow(), None)
+        me = ctypes.windll.kernel32.GetCurrentThreadId()
+        u.AttachThreadInput(fg_thread, me, True)
+        u.BringWindowToTop(hwnd)
+        u.SetForegroundWindow(hwnd)
+        u.AttachThreadInput(fg_thread, me, False)
+    except Exception:
+        pass
+    win.lift()
+    (widget or win).focus_force()
 
 
 def _kbd(parent, keys: str, bg=BG) -> tk.Label:
@@ -140,7 +163,7 @@ class UI:
         if self._home is not None and self._home.winfo_exists():
             self._home.deiconify()
             self._home.lift()
-            self._home.focus_force()
+            _foreground(self._home)
             return
         W = 470
         win = self._window("Efficient AI", W, chrome=True)
@@ -179,7 +202,7 @@ class UI:
         win.bind("<Escape>", lambda _: win.withdraw())
         win.protocol("WM_DELETE_WINDOW", win.withdraw)
         self._fit(win, W)
-        win.focus_force()
+        _foreground(win)
 
     # ---- shortcuts & help ------------------------------------------------------
     def help_window(self, sections: list[tuple[str, list[tuple[str, str]]]]):
@@ -191,7 +214,7 @@ class UI:
         inner = tk.Frame(canvas, bg=BG)
         inner.bind("<Configure>", lambda _: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.create_window((0, 0), window=inner, anchor="nw", width=W - 2 * PAD)
-        self._footer(win, [("↑ ↓", "scroll"), ("Esc", "close")])
+        self._footer(win, [("â†‘ â†“", "scroll"), ("Esc", "close")])
         canvas.pack(fill="both", expand=True, padx=PAD, before=win.pack_slaves()[-2])
         win.bind("<MouseWheel>", lambda e: canvas.yview_scroll(-e.delta // 120, "units"))
         win.bind("<Down>", lambda _: canvas.yview_scroll(2, "units"))
@@ -206,7 +229,7 @@ class UI:
                 tk.Label(box, text=what, font=SMALL, bg=SURFACE, fg=FG, anchor="w", justify="left",
                          wraplength=W - 2 * PAD - 230).grid(row=r, column=1, sticky="w", padx=(14, 0), pady=6)
             box.columnconfigure(0, minsize=170)
-        win.focus_force()
+        _foreground(win)
 
     # ---- approvals -----------------------------------------------------------
     def _ask(self, question, box, done):
@@ -235,7 +258,7 @@ class UI:
         win.bind("<Escape>", lambda _: deny())
         win.protocol("WM_DELETE_WINDOW", lambda: finish("No answer - do not proceed."))
         self._fit(win, W)
-        entry.focus_force()
+        _foreground(win, entry)
 
     # ---- Sidekick command bar: type and speak --------------------------------
     def sidekick_bar(self, on_submit, on_stop):
@@ -249,7 +272,7 @@ class UI:
         tk.Label(top, image=self._logo_small, bg=BG).pack(side="left")
         entry = tk.Entry(top, font=(F, 15), bg=BG, fg=FG, insertbackground=ACCENT, relief="flat")
         entry.pack(side="left", fill="x", expand=True, padx=12, ipady=4)
-        mic = tk.Label(top, text="🎙", font=(F, 14), bg=SURFACE, fg=MUTED, padx=8, cursor="hand2")
+        mic = tk.Label(top, text="ðŸŽ™", font=(F, 14), bg=SURFACE, fg=MUTED, padx=8, cursor="hand2")
         mic.pack(side="right")
         tk.Frame(frame, bg=LINE, height=1).pack(fill="x", padx=18, pady=(12, 0))
         foot = tk.Frame(frame, bg=BG)
@@ -258,9 +281,22 @@ class UI:
             _kbd(foot, keys).pack(side="left")
             tk.Label(foot, text=what, font=SMALL, bg=BG, fg=MUTED).pack(side="left", padx=(5, 12))
 
+        import keyboard
+
+        def close(_=None):
+            try:
+                keyboard.remove_hotkey(esc_hook)
+            except (KeyError, ValueError):
+                pass
+            if win.winfo_exists():
+                win.destroy()
+
+        # Esc via a global hook as well, so it works even if Windows kept focus on another app.
+        esc_hook = keyboard.add_hotkey("esc", lambda: self.call(close))
+
         def voice(_=None):
             # Windows voice typing (Win+H) dictates straight into the focused box, and you can keep typing.
-            entry.focus_force()
+            _foreground(win, entry)
             mic.configure(fg=ACCENT, bg=RAISED)
             threading.Thread(target=_press_win_h, daemon=True).start()
             return "break"
@@ -268,7 +304,7 @@ class UI:
         def submit(_=None):
             task = entry.get().strip()
             if task:
-                win.destroy()  # get out of the way of the screenshots
+                close()  # get out of the way of the screenshots
                 pill, label = self.status_pill(on_stop)
                 on_submit(task, lambda s: self.call(label.configure, {"text": s[:90]}), lambda: self.call(pill.destroy))
 
@@ -276,12 +312,12 @@ class UI:
         entry.bind("<Return>", submit)
         entry.bind("<Control-m>", voice)
         entry.bind("<F2>", voice)
-        win.bind("<Escape>", lambda _: win.destroy())
+        win.bind("<Escape>", close)
         self._fit(win, W)
-        win.lift()
-        entry.focus_force()
+        _foreground(win, entry)
+        win.after(150, lambda: _foreground(win, entry))  # once more after Windows finishes showing it
         if self.voice_on_open:
-            win.after(250, voice)
+            win.after(300, voice)
 
     # ---- live status pill while Sidekick works -------------------------------
     def status_pill(self, on_stop):
@@ -290,7 +326,7 @@ class UI:
         win = self._window("Efficient AI status", W, x=(sw - W) // 2, y=sh - 120, chrome=False)
         frame = tk.Frame(win, bg=SURFACE, highlightbackground=LINE, highlightthickness=1)
         frame.pack(fill="both", expand=True)
-        dot = tk.Label(frame, text="●", font=FONT, bg=SURFACE, fg=ACCENT)
+        dot = tk.Label(frame, text="â—", font=FONT, bg=SURFACE, fg=ACCENT)
         dot.pack(side="left", padx=(14, 8), pady=10)
         label = tk.Label(frame, text="Starting...", font=SMALL, bg=SURFACE, fg=FG, anchor="w")
         label.pack(side="left", fill="x", expand=True)
@@ -380,7 +416,7 @@ class UI:
         win.bind("<Control-Shift-C>", lambda _: copy())
         tweak.bind("<Return>", lambda _: redo())
         self._fit(win, W)
-        txt.focus_force()
+        _foreground(win, txt)
 
     # ---- proactive cards ----------------------------------------------------------
     def cards_window(self, cards: list[dict], on_action, on_dismiss):
@@ -419,7 +455,7 @@ class UI:
             if act and n <= 9:
                 win.bind(str(n), lambda _, act=act: act())
         self._footer(win, [("1-9", "do it"), ("Esc", "close")])
-        win.focus_force()
+        _foreground(win)
 
     def _readonly(self, title: str, body: str):
         W = 540
@@ -428,7 +464,7 @@ class UI:
         t.insert("1.0", body)
         t.configure(state="disabled")
         t.pack(fill="both", expand=True, padx=PAD, pady=PAD)
-        win.focus_force()
+        _foreground(win)
 
     def run(self):
         self.root.mainloop()
@@ -440,5 +476,7 @@ def _press_win_h():
 
     import keyboard
 
-    time.sleep(0.15)
+    time.sleep(0.05)
+    for k in ("ctrl", "alt", "shift"):  # still held from the hotkey that opened the box, which breaks Win+H
+        keyboard.release(k)
     keyboard.send("windows+h")

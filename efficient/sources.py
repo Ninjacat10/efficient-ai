@@ -1,4 +1,4 @@
-"""Local data sources - the Windows equivalents of Notes / Mail / Calendar / Files / Screenshots.
+﻿"""Local data sources - the Windows equivalents of Notes / Mail / Calendar / Files / Screenshots.
 
 Each source yields Item dicts: {source, id, title, when, text, meta}. Sources are
 incremental: they only return things changed since the cursor stored in state.json.
@@ -16,6 +16,8 @@ import tempfile
 import threading
 from pathlib import Path
 from typing import Iterator
+
+from .config import secret
 
 log = logging.getLogger(__name__)
 
@@ -207,7 +209,7 @@ def imap_mail(cfg: dict, since: float) -> Iterator[dict]:
         return ""
 
     for acct in cfg.get("accounts", []):
-        password = os.environ.get(acct.get("password_env", ""), "")
+        password = secret(acct.get("password_env", ""))
         if not password:
             log.info("IMAP %s: set the %s environment variable", acct.get("name"), acct.get("password_env"))
             continue

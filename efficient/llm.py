@@ -1,4 +1,4 @@
-"""Pluggable model providers ("your choice of AI").
+﻿"""Pluggable model providers ("your choice of AI").
 
 Every provider exposes chat(system, text, images) -> str. Images are PIL images.
 Sidekick (computer use) needs Claude; everything else works with local models too.
@@ -10,7 +10,7 @@ import io
 
 import requests
 
-from .config import load_config
+from .config import load_config, secret
 
 
 def png_b64(img) -> str:
@@ -147,5 +147,5 @@ def get_provider(kind: str | None = None):
     if kind == "gemini":
         import os
 
-        return OpenAICompatProvider(cfg["gemini_url"], cfg["gemini_model"], os.environ.get("GEMINI_API_KEY") or cfg["gemini_api_key"])
+        return OpenAICompatProvider(cfg["gemini_url"], cfg["gemini_model"], secret("GEMINI_API_KEY") or cfg["gemini_api_key"])
     raise ValueError(f"Unknown provider {kind!r}")

@@ -1,4 +1,4 @@
-"""Sidekick - "finish this for me". Claude drives your PC with mouse and keyboard.
+﻿"""Sidekick - "finish this for me". Claude drives your PC with mouse and keyboard.
 
 Uses the Claude computer toolset (computer_toolset_20260801): each tool_use block's
 `name` is the action (screenshot, left_click, type, ...), several can arrive per
@@ -18,7 +18,7 @@ from typing import Callable
 import pyautogui
 import pyperclip
 
-from .config import load_config
+from .config import load_config, secret
 from .knowledge import knowledge_context
 from .llm import png_b64
 from .screen import Screen, settle
@@ -343,7 +343,7 @@ class Sidekick:
 
         from .llm import post_with_retry
 
-        key = os.environ.get("GEMINI_API_KEY") or self.cfg.get("gemini_api_key")
+        key = secret("GEMINI_API_KEY") or self.cfg.get("gemini_api_key")
         if not key:
             return "Set GEMINI_API_KEY (or gemini_api_key in config.json) to use Sidekick with Gemini."
         url = self.cfg["gemini_url"].rstrip("/") + "/chat/completions"
