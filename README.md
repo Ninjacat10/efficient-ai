@@ -1,4 +1,4 @@
-﻿<p align="center">
+<p align="center">
   <img src="assets/logo.png" width="112" alt="Efficient AI logo">
 </p>
 
@@ -12,11 +12,11 @@
 
 | Feature | How you use it |
 |---|---|
-| **Sidekick** â€“ it drives your mouse and keyboard to finish a task | `Ctrl+Shift+Space`, then type or speak the task |
-| **Voice** â€“ speak instead of typing, in any box | `Ctrl+M` in the Sidekick box (Windows voice typing, free) |
-| **Double Tap** â€“ a reply drafted in your voice | Double-tap **Right Ctrl** in any email or chat |
-| **Morning cards** â€“ what needs you today, ready to act on | Shown at login; press `1`â€“`9` to act |
-| **Nightly knowledge** â€“ reads your mail, notes and files at 3 AM | Automatic; it's all plain files you can edit |
+| **Sidekick** – it drives your mouse and keyboard to finish a task | `Ctrl+Shift+Space`, then type or speak the task |
+| **Voice** – speak instead of typing, in any box | `Ctrl+M` in the Sidekick box (Windows voice typing, free) |
+| **Double Tap** – a reply drafted in your voice | Double-tap **Right Ctrl** in any email or chat |
+| **Morning cards** – what needs you today, ready to act on | Shown at login; press `1`–`9` to act |
+| **Nightly knowledge** – reads your mail, notes and files at 3 AM | Automatic; it's all plain files you can edit |
 | **Home window** | `Ctrl+Alt+E`, the tray icon, or the Start Menu |
 | **Claude Code / Cowork** | Buttons on the home window (they use your Claude plan) |
 
@@ -37,7 +37,7 @@ Then open **Efficient AI** from the Start Menu.
 
 ## Choose your AI
 
-Set these in `%APPDATA%\EfficientAI\config.json` (home window â†’ Settings):
+Set these in `%APPDATA%\EfficientAI\config.json` (home window → Settings):
 
 | Setting | Options |
 |---|---|
