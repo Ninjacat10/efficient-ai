@@ -199,7 +199,11 @@ class App:
 
     # ---- wiring ------------------------------------------------------------
     def _watch_claude(self):
-        """Learn from each Claude Code conversation shortly after it goes quiet - no waiting for 3 AM."""
+        """Learn from each Claude Code conversation shortly after it goes quiet - no waiting for 3 AM.
+
+        The 5-minute check only looks at file timestamps on disk (free, no AI). The model is called once,
+        after a session has gone quiet.
+        """
         import time
 
         projects = Path.home() / ".claude" / "projects"

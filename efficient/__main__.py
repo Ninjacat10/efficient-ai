@@ -6,6 +6,7 @@
   build [--full]      knowledge build only (--full re-reads everything)
   suggest             regenerate proactive cards and print them
   sidekick "task"     run one Sidekick task from the terminal
+  learn-claude        learn from new Claude chats (run by a Claude Code SessionEnd hook)
   sources             show what each enabled source would read (dry run, no AI)
   uninstall           remove the nightly task and autostart
 """
@@ -59,6 +60,17 @@ def main(argv: list[str]) -> int:
         from . import knowledge
 
         print(json.dumps(knowledge.build(full="--full" in argv), indent=2))
+    elif cmd == "learn-claude":
+        # Called by a Claude Code SessionEnd hook: hand off to a detached process so Claude isn't kept waiting.
+        if "--now" not in argv:
+            import subprocess
+
+            subprocess.Popen([sys.executable, "-m", "efficient", "learn-claude", "--now"],
+                             creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW, close_fds=True)
+            return 0
+        from . import knowledge
+
+        logging.getLogger(__name__).info("learned from Claude session: %s", knowledge.build(only=["ai_chats"]))
     elif cmd == "suggest":
         from . import proactive
 

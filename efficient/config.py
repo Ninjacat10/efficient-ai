@@ -100,16 +100,20 @@ def save_config(cfg: dict) -> None:
 
 
 def secret(name: str) -> str:
-    """An env var, falling back to the user's saved one (setx). Apps launched before `setx` never see it otherwise."""
-    if os.environ.get(name):
-        return os.environ[name]
+    """The user's saved value (setx) first, so a new key takes effect at once; then the process environment.
+
+    Running apps keep the environment they started with, which can hold an old key.
+    """
     try:
         import winreg
 
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as k:
-            return str(winreg.QueryValueEx(k, name)[0])
+            val = str(winreg.QueryValueEx(k, name)[0])
+            if val:
+                return val
     except OSError:
-        return ""
+        pass
+    return os.environ.get(name, "")
 
 
 def load_state() -> dict:

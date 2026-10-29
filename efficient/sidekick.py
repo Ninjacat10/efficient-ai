@@ -67,9 +67,74 @@ WINDOW_TOOLS = [
      "input_schema": {"type": "object", "properties": {}}},
     {"name": "focus_window", "description": "Bring the first open window whose title contains this text to the front.",
      "input_schema": {"type": "object", "properties": {"title": {"type": "string"}}, "required": ["title"]}},
+    {"name": "list_fields", "description": "List the form fields visible in the front window with their real labels and current values. Call this before filling a form.",
+     "input_schema": {"type": "object", "properties": {}}},
+    {"name": "fill_by_name", "description": "Fill a form field chosen by its number or label from list_fields. The most reliable way to fill forms. Returns what the field contains afterwards.",
+     "input_schema": {"type": "object", "properties": {"field": {"type": "string", "description": "Number from list_fields, or the field label"}, "text": {"type": "string"}}, "required": ["field", "text"]}},
     {"name": "run_claude_code", "description": "Hand a coding task to Claude Code (runs in the background in a folder and edits files there). Returns its summary.",
      "input_schema": {"type": "object", "properties": {"task": {"type": "string"}, "folder": {"type": "string", "description": "Absolute project folder path"}}, "required": ["task", "folder"]}},
 ]
+
+
+FIELD_TYPES = ("EditControl", "ComboBoxControl")
+
+
+def _norm(s: str) -> str:
+    return re.sub(r"[^a-z0-9 ]", " ", (s or "").lower()).strip()
+
+
+BROWSER_CHROME = re.compile(r"address and search bar|search tabs|address bar|search or enter web address", re.I)
+
+
+def find_fields() -> list:
+    # Browsers build the page's accessibility tree lazily, on the first UI Automation query - so look twice.
+    fields = _scan_fields()
+    if not fields:
+        time.sleep(0.8)
+        fields = _scan_fields()
+    return fields
+
+
+def _scan_fields() -> list:
+    """Text boxes and dropdowns in the front window, with their real labels, via Windows UI Automation.
+
+    Browsers expose each input's accessible name ("First name", "Email"...), so filling by name can't put
+    your email in the first-name box the way guessing coordinates from a screenshot can.
+    """
+    import uiautomation as auto
+
+    fields, start = [], time.time()
+    root = auto.GetForegroundControl()
+    for c, _depth in auto.WalkControl(root, includeTop=False, maxDepth=60):
+        if time.time() - start > 8 or len(fields) >= 120:
+            break
+        if c.ControlTypeName in FIELD_TYPES:
+            try:
+                r = c.BoundingRectangle
+                if r.width() > 4 and r.height() > 4 and not c.IsOffscreen and not BROWSER_CHROME.search(c.Name or ""):
+                    fields.append(c)
+            except Exception:
+                continue
+    return fields
+
+
+def _focused_name() -> str:
+    """Label of the field that has keyboard focus right now ('' if unknown)."""
+    try:
+        import uiautomation as auto
+
+        with auto.UIAutomationInitializerInThread():
+            c = auto.GetFocusedControl()
+            return c.Name if c and c.ControlTypeName in FIELD_TYPES else ""
+    except Exception:
+        return ""
+
+
+def _field_value(c) -> str:
+    try:
+        return c.GetValuePattern().Value
+    except Exception:
+        return ""
 
 
 def list_windows() -> str:
@@ -166,6 +231,10 @@ GEMINI_NOTE = """
 
 How to work:
 - Coordinates: every x and y is on a 0-1000 grid over the latest screenshot (0,0 top-left, 1000,1000 bottom-right).
+- FORMS: first call list_fields, then fill_by_name for each field using its number. Match values to labels carefully:
+  first name -> First name, last name -> Last name, email -> Email, phone -> Phone, city -> City. Read the result each time;
+  if it reports a problem, fix that field. Only use fill_field (coordinates) when list_fields finds nothing.
+  After filling what's visible, scroll down and call list_fields again for the next part of the form.
 - ACT, don't narrate. Planning in your head does nothing - only function calls change the screen. Never describe what you would type; call fill_field.
 - Be fast: call several functions in one turn when you can see the targets, e.g. fill every visible form field in a single turn, then check the next screenshot.
 - After each turn, compare the new screenshot with what you expected. If a field is still empty, fill it again a different way (click it, then type).
@@ -195,14 +264,53 @@ class Sidekick:
         mods = inp.get("text") if inp.get("text") and "click" in inp.get("_name", "") else inp.get("modifiers") or inp.get("key")
         return _keys(mods) if isinstance(mods, str) else []
 
+    def _check_takeover(self) -> None:
+        """Stop the moment you grab the mouse: if it isn't where Sidekick left it, you moved it."""
+        exp = getattr(self, "_expected", None)
+        if exp:
+            x, y = pyautogui.position()
+            if abs(x - exp[0]) + abs(y - exp[1]) > 40:
+                self.stop_event.set()
+                raise Stopped("you moved the mouse")
+
+    def _remember_mouse(self) -> None:
+        self._expected = pyautogui.position()
+
     def execute(self, name: str, inp: dict) -> list[dict] | str:
         if self.stop_event.is_set():
             raise Stopped()
+        self._check_takeover()
+        self._acting = True
+        try:
+            return self._execute(name, inp)
+        finally:
+            self._remember_mouse()
+            self._acting = False
+
+    def _watchdog(self) -> None:
+        """While the model is thinking between actions, moving the mouse stops the run straight away."""
+        self._acting = False
+        self._remember_mouse()
+        while not self.stop_event.is_set() and self._running:
+            time.sleep(0.2)
+            if not self._acting:
+                try:
+                    self._check_takeover()
+                except Stopped:
+                    self.status("Stopped - you moved the mouse")
+                    return
+
+    def _execute(self, name: str, inp: dict) -> list[dict] | str:
         inp = dict(inp, _name=name)
         if name == "list_windows":
             return list_windows()
         if name == "focus_window":
             return focus_window(inp["title"])
+        if name in ("list_fields", "fill_by_name"):
+            import uiautomation as auto
+
+            with auto.UIAutomationInitializerInThread():
+                return self._list_fields() if name == "list_fields" else self._fill_by_name(inp["field"], inp["text"])
         if name == "run_claude_code":
             self.status("Claude Code is working on it...")
             return run_claude_code(inp["task"], inp["folder"])
@@ -271,6 +379,56 @@ class Sidekick:
         settle(0.3)
         return "OK"
 
+    def _list_fields(self) -> str:
+        self._fields = find_fields()
+        if not self._fields:
+            return "No form fields found by name in this window. Fall back to fill_field with coordinates."
+        rows = []
+        for n, c in enumerate(self._fields, 1):
+            label = c.Name or c.HelpText or c.AutomationId or "(no label)"
+            kind = "dropdown" if c.ControlTypeName == "ComboBoxControl" else "text"
+            val = _field_value(c)
+            rows.append(f"{n}. {label} [{kind}]" + (f" = {val!r}" if val else " (empty)"))
+        return "Fields in the front window:\n" + "\n".join(rows)
+
+    def _match_field(self, field: str):
+        fields = self._fields
+        if field.strip().isdigit() and 0 < int(field) <= len(fields):
+            return fields[int(field) - 1]
+        want = _norm(field)
+        exact = [f for f in fields if _norm(f.Name) == want]
+        partial = [f for f in fields if want and (want in _norm(f.Name) or (_norm(f.Name) and _norm(f.Name) in want))]
+        return (exact or partial or [None])[0]
+
+    def _fill_by_name(self, field: str, text: str) -> str:
+        self._fields = getattr(self, "_fields", None) or find_fields()
+        c = self._match_field(field)
+        if c is None:  # page may have changed (next step, scrolled) - rescan once
+            self._fields = find_fields()
+            c = self._match_field(field)
+        if c is None:
+            return f"No field matching {field!r}. Call list_fields to see the real labels."
+        try:
+            c.GetScrollItemPattern().ScrollIntoView()
+            settle(0.2)
+        except Exception:
+            pass
+        r = c.BoundingRectangle
+        pyautogui.click((r.left + r.right) // 2, (r.top + r.bottom) // 2)
+        settle(0.15)
+        if c.ControlTypeName == "ComboBoxControl":
+            pyautogui.write(text[:30], interval=0.02)  # type-to-select, then confirm
+            pyautogui.press("enter")
+        else:
+            pyautogui.hotkey("ctrl", "a")
+            _paste(text)
+        settle(0.2)
+        got = _field_value(c)
+        label = c.Name or field
+        if got and _norm(text) not in _norm(got) and c.ControlTypeName != "ComboBoxControl":
+            return f"Problem: {label!r} now contains {got!r}, not what you meant. Fix it."
+        return f"{label!r} = {got or text!r}"
+
     @staticmethod
     def _image(img) -> dict:
         return {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": png_b64(img)}}
@@ -278,6 +436,15 @@ class Sidekick:
     # ---- agent loop -------------------------------------------------------
     def run(self, task: str) -> str:
         self.stop_event.clear()
+        self._running = True
+        threading.Thread(target=self._watchdog, daemon=True).start()
+        try:
+            out = self._run(task)
+        finally:
+            self._running = False
+        return "Stopped - you took back the mouse." if self.stop_event.is_set() and "Stopped" in out else out
+
+    def _run(self, task: str) -> str:
         system = SYSTEM.format(knowledge=knowledge_context(30_000) or "(knowledge base is empty - run the nightly build)")
         if self.backend == "gemini":
             return self._run_gemini(task, system + GEMINI_NOTE)
@@ -337,6 +504,11 @@ class Sidekick:
                 return "The user did NOT approve this. Do not do it; call done and summarise what is ready for them to review."
         if name == "fill_field":
             self.execute("left_click", {"coordinate": self._grid(a["x"], a["y"])})
+            got = _focused_name()
+            want = _norm(a.get("label", ""))
+            if got and want and not (set(want.split()) & set(_norm(got).split())):
+                return (f"Not typed: the click landed in the {got!r} field, not {a.get('label')!r}. "
+                        "Use list_fields + fill_by_name instead of coordinates.")
             pyautogui.hotkey("ctrl", "a")
             _paste(a["text"])
             settle(0.15)
@@ -355,7 +527,7 @@ class Sidekick:
             return self.execute("left_click_drag", {"start_coordinate": self._grid(a["x"], a["y"]), "coordinate": self._grid(a["to_x"], a["to_y"])})
         if name == "wait":
             return self.execute("wait", {"duration": a.get("seconds", 1)})
-        if name in ("list_windows", "focus_window", "run_claude_code"):
+        if name in ("list_windows", "focus_window", "run_claude_code", "list_fields", "fill_by_name"):
             return self.execute(name, a)
         return f"Unknown function {name!r}."
 

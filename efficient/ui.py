@@ -321,7 +321,7 @@ class UI:
 
     # ---- live status pill while Sidekick works -------------------------------
     def status_pill(self, on_stop):
-        W = 560
+        W = 760
         sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
         win = self._window("Efficient AI status", W, x=(sw - W) // 2, y=sh - 120, chrome=False)
         frame = tk.Frame(win, bg=SURFACE, highlightbackground=LINE, highlightthickness=1)
@@ -331,6 +331,7 @@ class UI:
         label = tk.Label(frame, text="Starting...", font=SMALL, bg=SURFACE, fg=FG, anchor="w")
         label.pack(side="left", fill="x", expand=True)
         _kbd(frame, "Ctrl+Alt+Esc", bg=SURFACE).pack(side="right", padx=(0, 12))
+        tk.Label(frame, text="Stop: move your mouse or", font=SMALL, bg=SURFACE, fg=MUTED).pack(side="right", padx=(0, 6))
         stop = self._button(frame, "Stop", on_stop, bg=SURFACE)
         stop.pack(side="right", padx=6, pady=6)
 
