@@ -24,7 +24,7 @@ LOG_DIR = HOME / "logs"
 DEFAULTS: dict = {
     # Provider for heavy work (knowledge build, suggestions, Sidekick).
     # "anthropic" | "ollama" | "openai_compat"
-    "provider": "anthropic",
+    "provider": "gemini",
     "anthropic_model": "claude-opus-5-5",
     "ollama_url": "http://localhost:11434",
     "ollama_model": "llama3.1:8b",
@@ -40,11 +40,11 @@ DEFAULTS: dict = {
     "ollama_fast_model": "gemma3:4b",
     "gemini_api_key": "",
     # Sidekick backend: "anthropic" (Claude computer use) or "gemini".
-    "sidekick_provider": "anthropic",
+    "sidekick_provider": "gemini",
     # How hard Gemini thinks each Sidekick step: "low" (fastest), "medium", "high".
     "sidekick_thinking": "low",
     # Double Tap can use a different (e.g. local, faster) provider.
-    "doubletap_provider": "anthropic",
+    "doubletap_provider": "gemini",
     "sources": {
         "folders": {"enabled": True, "paths": ["~/Documents", "~/Desktop"]},
         "outlook_mail": {"enabled": True, "days": 14, "max_items": 300},
@@ -122,6 +122,14 @@ def secret(name: str) -> str:
     except OSError:
         pass
     return os.environ.get(name, "")
+
+
+def save_secret(name: str, value: str) -> None:
+    """Store a key for this Windows user (same place as `setx`), so every Efficient AI process finds it."""
+    import winreg
+
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_SET_VALUE) as k:
+        winreg.SetValueEx(k, name, 0, winreg.REG_SZ, value.strip())
 
 
 def load_state() -> dict:

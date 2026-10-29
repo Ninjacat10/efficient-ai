@@ -10,6 +10,7 @@ import ctypes
 import queue
 import threading
 import tkinter as tk
+from tkinter import ttk
 
 from PIL import ImageTk
 
@@ -76,6 +77,11 @@ def _kbd(parent, keys: str, bg=BG) -> tk.Label:
 
 class UI:
     def __init__(self):
+        # Our own taskbar identity: without it Windows groups our windows under python.exe and shows its icon.
+        try:
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("EfficientAI.App")
+        except Exception:
+            pass
         self.root = tk.Tk()
         self.root.withdraw()
         self.root.title("Efficient AI")
@@ -170,8 +176,22 @@ class UI:
         win.attributes("-topmost", False)
         self._home = win
         self._header(win, "Efficient AI", subtitle)
-        rows = tk.Frame(win, bg=BG)
-        rows.pack(fill="x", padx=PAD - 4)
+        # Scrollable list: it grows with the menu but never runs off a small laptop screen.
+        box = tk.Frame(win, bg=BG)
+        box.pack(fill="both", expand=True, padx=PAD - 4)
+        canvas = tk.Canvas(box, bg=BG, highlightthickness=0, width=W - 2 * PAD)
+        style = ttk.Style(win)
+        style.theme_use("clam")  # the only built-in theme whose scrollbar can be recolored to match
+        style.configure("Efficient.Vertical.TScrollbar", background=RAISED, troughcolor=BG, bordercolor=BG,
+                        lightcolor=RAISED, darkcolor=RAISED, arrowcolor=MUTED, gripcount=0)
+        bar = ttk.Scrollbar(box, orient="vertical", command=canvas.yview, style="Efficient.Vertical.TScrollbar")
+        rows = tk.Frame(canvas, bg=BG)
+        canvas.create_window((0, 0), window=rows, anchor="nw", width=W - 2 * PAD - 12)
+        canvas.configure(yscrollcommand=bar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        win.bind("<MouseWheel>", lambda e: canvas.yview_scroll(-e.delta // 120, "units"))
+        win.bind("<Down>", lambda _: canvas.yview_scroll(1, "units"))
+        win.bind("<Up>", lambda _: canvas.yview_scroll(-1, "units"))
 
         def run(cb):
             win.withdraw()
@@ -198,11 +218,52 @@ class UI:
                 win.bind(str(n), lambda _, cb=cb: run(cb))
             if title.startswith("Shortcuts"):
                 win.bind("<F1>", lambda _, cb=cb: run(cb))
-        self._footer(win, [("1-9", "open"), ("Esc", "hide")])
+        self._footer(win, [("1-9", "open"), ("↑ ↓", "scroll"), ("Esc", "hide")])
         win.bind("<Escape>", lambda _: win.withdraw())
         win.protocol("WM_DELETE_WINDOW", win.withdraw)
+        win.update_idletasks()
+        full = rows.winfo_reqheight()
+        max_list = int(self.root.winfo_screenheight() * 0.45)  # leaves room for header, footer and taskbar
+        canvas.configure(height=min(full, max_list), scrollregion=(0, 0, 0, full))
+        if full > max_list:
+            bar.pack(side="right", fill="y")
         self._fit(win, W)
         _foreground(win)
+
+    # ---- first run: connect an AI ------------------------------------------------
+    def onboarding(self, on_save):
+        """Shown once when no AI key is set. The user pastes their own free Gemini key."""
+        import webbrowser
+
+        W = 520
+        win = self._window("Welcome to Efficient AI", W)
+        self._header(win, "Welcome to Efficient AI", "One step: connect a free AI key so it can think.")
+        steps = ("1.  Click \"Get a free key\" and sign in with Google.\n"
+                 "2.  Click \"Create API key\" and copy it.\n"
+                 "3.  Paste it below and press Enter.")
+        tk.Label(win, text=steps, font=FONT, bg=BG, fg=FG, justify="left", anchor="w").pack(fill="x", padx=PAD)
+        entry = tk.Entry(win, font=FONT, bg=SURFACE, fg=FG, insertbackground=ACCENT, relief="flat", show="•",
+                         highlightthickness=1, highlightbackground=LINE, highlightcolor=ACCENT)
+        entry.pack(fill="x", padx=PAD, pady=(14, 0), ipady=7)
+        note = tk.Label(win, text="Stored only on this PC, for your Windows account.", font=SMALL, bg=BG, fg=MUTED, anchor="w")
+        note.pack(fill="x", padx=PAD, pady=(6, 0))
+
+        def save(_=None):
+            key = entry.get().strip()
+            if len(key) < 20:
+                note.configure(text="That doesn't look like a full key - paste the whole thing.", fg=DANGER)
+                return
+            win.destroy()
+            on_save(key)
+
+        row = tk.Frame(win, bg=BG)
+        row.pack(fill="x", padx=PAD, pady=(14, 0))
+        self._button(row, "Get a free key", lambda: webbrowser.open("https://aistudio.google.com/apikey"), True).pack(side="left")
+        self._button(row, "Save", save).pack(side="left", padx=8)
+        self._footer(win, [("Enter", "save"), ("Esc", "later")])
+        entry.bind("<Return>", save)
+        self._fit(win, W)
+        _foreground(win, entry)
 
     # ---- paused: continue or end ------------------------------------------------
     def pause_blocking(self) -> bool:

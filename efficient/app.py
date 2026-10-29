@@ -279,7 +279,7 @@ class App:
         DoubleTapListener(self.double_tap, hk["doubletap_key"], hk["doubletap_window_ms"]).start()
 
         menu = pystray.Menu(
-            pystray.MenuItem("Open Efficient", lambda: self.show_home(), default=True),
+            pystray.MenuItem("Open Efficient AI", lambda: self.show_home(), default=True),
             pystray.MenuItem("Hand off a task (Sidekick)", lambda: self.open_sidekick()),
             pystray.MenuItem("Fill this application", lambda: self.fill_form()),
             pystray.MenuItem("Shortcuts & help", lambda: self.show_help()),
@@ -297,5 +297,21 @@ class App:
 
         if any(c["status"] == "new" for c in proactive.load()):
             self.ui.root.after(1500, self.show_cards)
-        self.show_home()
+        if self._needs_key():
+            self.ui.call(self.ui.onboarding, self._save_key)
+        else:
+            self.show_home()
         self.ui.run()
+
+    def _needs_key(self) -> bool:
+        from .config import secret
+
+        uses_gemini = any("gemini" in str(self.cfg.get(k, "")) for k in ("provider", "sidekick_provider", "fast_provider"))
+        return uses_gemini and not (secret("GEMINI_API_KEY") or self.cfg.get("gemini_api_key"))
+
+    def _save_key(self, key: str):
+        from .config import save_secret
+
+        save_secret("GEMINI_API_KEY", key)
+        self.ui.call(self.ui.toast, "Connected. Efficient AI is ready - press Ctrl+Alt+E any time.")
+        self.show_home()

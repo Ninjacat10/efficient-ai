@@ -1,4 +1,4 @@
-﻿"""CLI: python -m efficient <command>
+"""CLI: python -m efficient <command>
 
   run                 start the tray app (hotkeys, Double Tap, cards)
   setup               create config, install the nightly task and autostart
@@ -24,7 +24,8 @@ def _logging():
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        handlers=[logging.FileHandler(LOG_DIR / "efficient.log", encoding="utf-8"), logging.StreamHandler()],
+        # the packaged .exe has no console (sys.stderr is None), so only log to the file there
+        handlers=[logging.FileHandler(LOG_DIR / "efficient.log", encoding="utf-8")] + ([logging.StreamHandler()] if sys.stderr else []),
     )
 
 
@@ -56,7 +57,8 @@ def main(argv: list[str]) -> int:
         cfg = load_config()
         scheduler.install_nightly(cfg["nightly_time"])
         scheduler.set_autostart(True)
-        scheduler.create_shortcuts()
+        if not scheduler.FROZEN:  # the installer makes the shortcuts for the packaged app
+            scheduler.create_shortcuts()
         print(f"Config:    {CONFIG_PATH}\nKnowledge: {KNOWLEDGE_DIR}\nNightly task installed for {cfg['nightly_time']}, autostart enabled,"
               " and an 'Efficient AI' shortcut added to the Start Menu and Desktop.")
     elif cmd == "uninstall":
@@ -89,7 +91,10 @@ def main(argv: list[str]) -> int:
         if "--now" not in argv:
             import subprocess
 
-            subprocess.Popen([sys.executable, "-m", "efficient", "learn-claude", "--now"],
+            from .scheduler import FROZEN
+
+            cmd = [sys.executable, "learn-claude", "--now"] if FROZEN else [sys.executable, "-m", "efficient", "learn-claude", "--now"]
+            subprocess.Popen(cmd,
                              creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW, close_fds=True)
             return 0
         from . import knowledge
