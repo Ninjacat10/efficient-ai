@@ -24,6 +24,12 @@ Everything works from the keyboard. Every window lists its shortcuts at the bott
 
 ## Install
 
+**Easiest:** download `EfficientAI-Setup.exe` from [Releases](https://github.com/Ninjacat10/efficient-ai/releases), run it, and paste a free Gemini key when it asks. No Python or terminal needed.
+
+**Build the installer yourself:** install [uv](https://docs.astral.sh/uv/) and Inno Setup (`winget install JRSoftware.InnoSetup`), then run `packaging\build.ps1`. It produces `dist\EfficientAI-Setup-<version>.exe`.
+
+**From source** (for development):
+
 ```powershell
 git clone https://github.com/Ninjacat10/efficient-ai
 cd efficient-ai
