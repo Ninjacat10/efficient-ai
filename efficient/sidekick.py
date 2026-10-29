@@ -244,8 +244,14 @@ How to work:
 
 
 class Sidekick:
-    def __init__(self, ask: Callable[[str], str], status: Callable[[str], None] = print):
+    def __init__(self, ask: Callable[[str], str], status: Callable[[str], None] = print,
+                 pause: Callable[[], bool] | None = None):
         self.cfg = load_config()
+        # pause() blocks until you choose: True = continue the task, False = end it.
+        self.pause = pause or (lambda: input("\nSidekick paused. Continue? [Y/n] ").strip().lower() != "n")
+        self._pause_lock = threading.Lock()
+        self._pause_req = False
+        self._resumed = False
         self.backend = self.cfg.get("sidekick_provider", "anthropic")
         if self.backend == "anthropic":
             import anthropic
@@ -264,14 +270,30 @@ class Sidekick:
         mods = inp.get("text") if inp.get("text") and "click" in inp.get("_name", "") else inp.get("modifiers") or inp.get("key")
         return _keys(mods) if isinstance(mods, str) else []
 
-    def _check_takeover(self) -> None:
-        """Stop the moment you grab the mouse: if it isn't where Sidekick left it, you moved it."""
+    def _moved(self) -> bool:
+        """True if you moved the mouse: it isn't where Sidekick left it."""
         exp = getattr(self, "_expected", None)
-        if exp:
-            x, y = pyautogui.position()
-            if abs(x - exp[0]) + abs(y - exp[1]) > 40:
+        if not exp:
+            return False
+        x, y = pyautogui.position()
+        return abs(x - exp[0]) + abs(y - exp[1]) > 40
+
+    def _check_takeover(self) -> None:
+        """Pause the moment you grab the mouse, then continue or end the task - your choice."""
+        with self._pause_lock:  # if the pause prompt is already up, wait here until you answer it
+            if self.stop_event.is_set():
+                raise Stopped("ended by you")
+            if not (self._pause_req or self._moved()):
+                return
+            self._pause_req = False
+            self._expected = None
+            self.status("Paused - you took the mouse")
+            if not self.pause():
                 self.stop_event.set()
-                raise Stopped("you moved the mouse")
+                raise Stopped("ended by you")
+            self.status("Continuing...")
+            self._remember_mouse()
+            self._resumed = True  # the screen may have changed while paused; the next screenshot says so
 
     def _remember_mouse(self) -> None:
         self._expected = pyautogui.position()
@@ -287,18 +309,28 @@ class Sidekick:
             self._remember_mouse()
             self._acting = False
 
+    def ui_pause_now(self) -> None:
+        """Show the pause prompt right away instead of when the next action comes in."""
+        def run():
+            try:
+                self._check_takeover()  # holds the pause lock, so no action runs until you answer
+            except Stopped:
+                pass
+
+        threading.Thread(target=run, daemon=True).start()
+
     def _watchdog(self) -> None:
-        """While the model is thinking between actions, moving the mouse stops the run straight away."""
+        """While the model is thinking between actions, moving the mouse pauses the run straight away."""
+        self._pause_req = False
         self._acting = False
         self._remember_mouse()
         while not self.stop_event.is_set() and self._running:
             time.sleep(0.2)
-            if not self._acting:
-                try:
-                    self._check_takeover()
-                except Stopped:
-                    self.status("Stopped - you moved the mouse")
-                    return
+            if not self._acting and not self._pause_req and self._moved():
+                # Can't block here (the model may be mid-request); flag it so the next action waits for you.
+                self._pause_req = True
+                self._expected = None
+                self.ui_pause_now()
 
     def _execute(self, name: str, inp: dict) -> list[dict] | str:
         inp = dict(inp, _name=name)
@@ -535,7 +567,11 @@ class Sidekick:
         img = self.screen.grab()
         digest = hashlib.md5(img.resize((160, 100)).tobytes()).hexdigest()
         self._unchanged = getattr(self, "_last_digest", None) == digest
-        if self._unchanged:
+        if self._resumed:
+            self._resumed = False
+            self._unchanged = False
+            note += " You were paused while the user used the mouse; things may have changed. Re-check the screen before continuing."
+        elif self._unchanged:
             note +=" WARNING: the screen did not change after your last actions - they probably didn't work."
         self._last_digest = digest
         b64 = png_b64(img)

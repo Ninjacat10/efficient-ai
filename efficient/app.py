@@ -47,7 +47,7 @@ class App:
                 return
             try:
                 self.ui.call(self.ui.show_border, True)
-                self.sidekick = Sidekick(ask=self.ui.ask_blocking, status=status)
+                self.sidekick = Sidekick(ask=self.ui.ask_blocking, status=status, pause=self.ui.pause_blocking)
                 result = self.sidekick.run(task)
             except Exception as e:
                 log.exception("sidekick failed")

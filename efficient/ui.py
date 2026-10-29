@@ -1,4 +1,4 @@
-﻿"""Tk UI: home window, Sidekick command bar (type or speak), status pill, Double Tap popup, morning cards.
+"""Tk UI: home window, Sidekick command bar (type or speak), status pill, Double Tap popup, morning cards.
 
 All windows live on one Tk main thread; background threads post work with UI.call().
 Everything is keyboard-driven: every window lists its shortcuts in a footer, Esc always closes.
@@ -204,6 +204,38 @@ class UI:
         self._fit(win, W)
         _foreground(win)
 
+    # ---- paused: continue or end ------------------------------------------------
+    def pause_blocking(self) -> bool:
+        """Called from a worker thread when you grab the mouse. True = continue the task."""
+        done, box = threading.Event(), {"go": False}
+        self.call(self._pause, box, done)
+        done.wait()
+        return box["go"]
+
+    def _pause(self, box, done):
+        W = 460
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        win = self._window("Sidekick paused", W, x=sw - W - 24, y=sh - 260)
+        self._header(win, "Paused", "You took the mouse. Do what you need, then pick up where it left off.")
+
+        def finish(go):
+            if not done.is_set():
+                box["go"] = go
+                win.destroy()
+                done.set()
+
+        row = tk.Frame(win, bg=BG)
+        row.pack(fill="x", padx=PAD)
+        self._button(row, "Continue task", lambda: finish(True), True).pack(side="left")
+        self._button(row, "End task", lambda: finish(False)).pack(side="left", padx=8)
+        self._footer(win, [("Enter", "continue"), ("Esc", "end task")])
+        win.bind("<Return>", lambda _: finish(True))
+        win.bind("<Escape>", lambda _: finish(False))
+        win.protocol("WM_DELETE_WINDOW", lambda: finish(False))
+        self._fit(win, W)
+        win.geometry(f"+{sw - W - 24}+{sh - win.winfo_reqheight() - 140}")  # above the status bar, fully on screen
+        # Don't steal focus - you're busy with the mouse. It stays on top until you choose.
+
     # ---- shortcuts & help ------------------------------------------------------
     def help_window(self, sections: list[tuple[str, list[tuple[str, str]]]]):
         """A cheat sheet: every shortcut and what Efficient AI can do."""
@@ -214,7 +246,7 @@ class UI:
         inner = tk.Frame(canvas, bg=BG)
         inner.bind("<Configure>", lambda _: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.create_window((0, 0), window=inner, anchor="nw", width=W - 2 * PAD)
-        self._footer(win, [("â†‘ â†“", "scroll"), ("Esc", "close")])
+        self._footer(win, [("↑ ↓", "scroll"), ("Esc", "close")])
         canvas.pack(fill="both", expand=True, padx=PAD, before=win.pack_slaves()[-2])
         win.bind("<MouseWheel>", lambda e: canvas.yview_scroll(-e.delta // 120, "units"))
         win.bind("<Down>", lambda _: canvas.yview_scroll(2, "units"))
@@ -272,7 +304,7 @@ class UI:
         tk.Label(top, image=self._logo_small, bg=BG).pack(side="left")
         entry = tk.Entry(top, font=(F, 15), bg=BG, fg=FG, insertbackground=ACCENT, relief="flat")
         entry.pack(side="left", fill="x", expand=True, padx=12, ipady=4)
-        mic = tk.Label(top, text="ðŸŽ™", font=(F, 14), bg=SURFACE, fg=MUTED, padx=8, cursor="hand2")
+        mic = tk.Label(top, text="🎙", font=(F, 14), bg=SURFACE, fg=MUTED, padx=8, cursor="hand2")
         mic.pack(side="right")
         tk.Frame(frame, bg=LINE, height=1).pack(fill="x", padx=18, pady=(12, 0))
         foot = tk.Frame(frame, bg=BG)
@@ -326,14 +358,14 @@ class UI:
         win = self._window("Efficient AI status", W, x=(sw - W) // 2, y=sh - 120, chrome=False)
         frame = tk.Frame(win, bg=SURFACE, highlightbackground=LINE, highlightthickness=1)
         frame.pack(fill="both", expand=True)
-        dot = tk.Label(frame, text="â—", font=FONT, bg=SURFACE, fg=ACCENT)
+        dot = tk.Label(frame, text="●", font=FONT, bg=SURFACE, fg=ACCENT)
         dot.pack(side="left", padx=(14, 8), pady=10)
         label = tk.Label(frame, text="Starting...", font=SMALL, bg=SURFACE, fg=FG, anchor="w")
         label.pack(side="left", fill="x", expand=True)
-        _kbd(frame, "Ctrl+Alt+Esc", bg=SURFACE).pack(side="right", padx=(0, 12))
-        tk.Label(frame, text="Stop: move your mouse or", font=SMALL, bg=SURFACE, fg=MUTED).pack(side="right", padx=(0, 6))
         stop = self._button(frame, "Stop", on_stop, bg=SURFACE)
         stop.pack(side="right", padx=6, pady=6)
+        _kbd(frame, "Ctrl+Alt+Esc", bg=SURFACE).pack(side="right", padx=(0, 8))
+        tk.Label(frame, text="Move mouse = pause  ·  stop:", font=SMALL, bg=SURFACE, fg=MUTED).pack(side="right", padx=(0, 6))
 
         def pulse(on=[True]):
             if win.winfo_exists():
