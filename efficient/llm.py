@@ -23,8 +23,67 @@ class RefusalError(RuntimeError):
     pass
 
 
+def _daily_quota_hit(r: requests.Response) -> bool:
+    """Free Gemini keys have a per-day cap per model; waiting it out means hours, so don't retry."""
+    return r.status_code == 429 and "PerDay" in r.text
+
+
+_exhausted: dict[str, str] = {}  # model -> date its daily quota ran out (skip it until tomorrow)
+_discovered: list[str] = []
+
+
+def _gemini_models(url: str, headers: dict) -> list[str]:
+    """Every text chat Gemini model this key can use, newest first, Flash before Pro (fetched once)."""
+    import re
+
+    if not _discovered:
+        try:
+            r = requests.get(url.rsplit("/chat/completions", 1)[0] + "/models", headers=headers, timeout=20)
+            ids = [m["id"].removeprefix("models/") for m in r.json().get("data", [])]
+        except Exception:
+            ids = []
+        ok = [m for m in ids if re.fullmatch(r"gemini-(\d[\d.]*-(flash|pro)(-lite)?(-preview)?|(flash|flash-lite|pro)-latest)", m)]
+        ver = lambda m: float((re.match(r"gemini-(\d+(?:\.\d+)?)-", m) or [0, 99])[1])  # "-latest" names first
+        ok.sort(key=lambda m: ("pro" in m, -ver(m)))
+        _discovered.extend(ok or ["gemini-flash-lite-latest", "gemini-flash-latest"])
+    return _discovered
+
+
 def post_with_retry(url: str, tries: int = 6, **kw) -> requests.Response:
-    """POST that waits out rate limits (HTTP 429) and brief server errors, as free API tiers hit them often."""
+    """POST that waits out rate limits (HTTP 429) and brief server errors, as free API tiers hit them often.
+
+    Each Gemini model has its own daily free quota. When one runs out (or isn't available to this key),
+    it moves on to the next: `gemini_fallback_models` first, then every other Gemini model the key can use.
+    """
+    import datetime
+
+    body = kw.get("json") or {}
+    model = str(body.get("model", ""))
+    if not model.startswith("gemini"):
+        return _post_with_retry(url, tries, **kw)
+    today = datetime.date.today().isoformat()
+    chain = [model] + load_config().get("gemini_fallback_models", []) + _gemini_models(url, kw.get("headers") or {})
+    r = None
+    for m in dict.fromkeys(chain):
+        if _exhausted.get(m) == today:
+            continue
+        kw["json"] = {**body, "model": m}
+        if m != model and kw["json"].get("reasoning_effort") == "none":
+            kw["json"]["reasoning_effort"] = "low"  # not every model accepts "none"
+        r = _post_with_retry(url, tries, **kw)
+        if _daily_quota_hit(r):
+            _exhausted[m] = today
+        elif r.status_code in (400, 404) and m != model:
+            continue  # this model can't take the request; try the next
+        else:
+            if m != model:
+                import logging
+                logging.getLogger(__name__).info("%s is out of quota today; used %s", model, m)
+            return r
+    return r if r is not None else _post_with_retry(url, tries, **{**kw, "json": body})
+
+
+def _post_with_retry(url: str, tries: int = 6, **kw) -> requests.Response:
     import time
 
     for n in range(tries):
@@ -35,7 +94,7 @@ def post_with_retry(url: str, tries: int = 6, **kw) -> requests.Response:
                 raise
             time.sleep(min(60, 5 * 2 ** n))
             continue
-        if r.status_code not in (429, 500, 503) or n == tries - 1:
+        if r.status_code not in (429, 500, 503) or n == tries - 1 or _daily_quota_hit(r):
             return r
         wait = float(r.headers.get("retry-after") or min(60, 5 * 2 ** n))
         time.sleep(wait)
@@ -100,6 +159,9 @@ class OpenAICompatProvider:
             json={"model": self.model, "messages": [{"role": "system", "content": system}, {"role": "user", "content": content}], **self.extra},
             timeout=600,
         )
+        if _daily_quota_hit(r):
+            raise RuntimeError("Your free Gemini key has used up today's requests on every model. It resets at midnight Pacific time; "
+                               "or switch provider to claude_code or ollama in Settings.")
         r.raise_for_status()
         return r.json()["choices"][0]["message"]["content"].strip()
 
