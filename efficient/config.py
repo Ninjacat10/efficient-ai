@@ -36,6 +36,8 @@ DEFAULTS: dict = {
     "gemini_api_key": "",
     # Sidekick backend: "anthropic" (Claude computer use) or "gemini".
     "sidekick_provider": "anthropic",
+    # How hard Gemini thinks each Sidekick step: "low" (fastest), "medium", "high".
+    "sidekick_thinking": "low",
     # Double Tap can use a different (e.g. local, faster) provider.
     "doubletap_provider": "anthropic",
     "sources": {

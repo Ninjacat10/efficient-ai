@@ -10,7 +10,9 @@ anything irreversible (paying, sending, submitting, deleting).
 """
 from __future__ import annotations
 
+import hashlib
 import logging
+import re
 import threading
 import time
 from typing import Callable
@@ -137,15 +139,22 @@ def _fn(name: str, description: str, props: dict, required: list[str]) -> dict:
             "parameters": {"type": "object", "properties": props, "required": required}}}
 
 
+_LABEL = {"type": "string", "description": "Exactly what this acts on, e.g. 'Next button', 'Submit application button', 'Enter in the search box'"}
+# Clicks/keys whose label matches this always need the user's OK, whatever the model decides.
+RISKY = re.compile(r"\b(submit|send|pay|purchase|buy|order|checkout|apply|confirm|delete|remove|post|publish|sign|book|transfer|"
+                   r"finish|complete|accept|agree|unsubscribe|withdraw)\b", re.I)
 _XY = {"x": {"type": "integer", "description": "0-1000, left to right"}, "y": {"type": "integer", "description": "0-1000, top to bottom"}}
 
 # Gemini has no Claude-style computer toolset, so Sidekick exposes the same actions as plain
 # functions. Coordinates are normalized 0-1000 (the grid Gemini is trained to point with).
 GEMINI_TOOLS = [
     _fn("screenshot", "Take a new screenshot of the screen.", {}, []),
-    _fn("click", "Click at a point.", {**_XY, "button": {"type": "string", "enum": ["left", "right", "double"]}}, ["x", "y"]),
+    _fn("fill_field", "Click a text box, clear it, and enter text in one step. Use this for every form field.",
+        {**_XY, "text": {"type": "string"}, "label": {"type": "string", "description": "The field's label, e.g. 'First name'"}}, ["x", "y", "text", "label"]),
+    _fn("click", "Click at a point.", {**_XY, "label": _LABEL, "button": {"type": "string", "enum": ["left", "right", "double"]}}, ["x", "y", "label"]),
     _fn("type", "Type text at the current focus.", {"text": {"type": "string"}}, ["text"]),
-    _fn("key", "Press a key or combo, e.g. 'enter', 'ctrl+l', 'win'.", {"keys": {"type": "string"}}, ["keys"]),
+    _fn("key", "Press a key or combo, e.g. 'tab', 'enter', 'ctrl+l', 'win'.", {"keys": {"type": "string"}, "label": _LABEL}, ["keys", "label"]),
+    _fn("done", "Call this when the whole task is finished (or impossible). Nothing else ends the task.", {"summary": {"type": "string"}}, ["summary"]),
     _fn("scroll", "Scroll at a point.", {**_XY, "direction": {"type": "string", "enum": ["up", "down", "left", "right"]}, "amount": {"type": "integer"}}, ["x", "y", "direction"]),
     _fn("drag", "Drag from one point to another.", {"x": _XY["x"], "y": _XY["y"], "to_x": _XY["x"], "to_y": _XY["y"]}, ["x", "y", "to_x", "to_y"]),
     _fn("wait", "Wait for the screen to update.", {"seconds": {"type": "number"}}, []),
@@ -153,7 +162,16 @@ GEMINI_TOOLS = [
     *(_fn(t["name"], t["description"], t["input_schema"]["properties"], t["input_schema"].get("required", [])) for t in WINDOW_TOOLS),
 ]
 
-GEMINI_NOTE = "\n\nCoordinates: every x and y is on a 0-1000 grid over the latest screenshot (0,0 top-left, 1000,1000 bottom-right). When the task is done, reply with text and no function call."
+GEMINI_NOTE = """
+
+How to work:
+- Coordinates: every x and y is on a 0-1000 grid over the latest screenshot (0,0 top-left, 1000,1000 bottom-right).
+- ACT, don't narrate. Planning in your head does nothing - only function calls change the screen. Never describe what you would type; call fill_field.
+- Be fast: call several functions in one turn when you can see the targets, e.g. fill every visible form field in a single turn, then check the next screenshot.
+- After each turn, compare the new screenshot with what you expected. If a field is still empty, fill it again a different way (click it, then type).
+- If the same thing has failed 3 times, stop repeating it. Think about why it fails, then switch approach: Tab between fields, scroll it into view, use the keyboard, close a popup, or ask_user.
+- Big or irreversible steps (submitting an application, sending, paying, deleting, booking) always need ask_user approval first, with a short summary of what will be submitted. The app also enforces this.
+- When the task is finished, call done with a short summary. For forms: fill everything, then stop and ask before the final submit."""
 
 
 class Sidekick:
@@ -313,11 +331,22 @@ class Sidekick:
     def _gemini_action(self, name: str, a: dict) -> str:
         if name == "screenshot":
             return "OK"  # a fresh screenshot is attached after every turn anyway
+        if name in ("click", "key") and RISKY.search(a.get("label", "")):
+            answer = self.ask(f"About to: {a['label']}.\n\nAllow it? (Approve to continue, Deny to stop here)")
+            if not answer or answer.lower().startswith("no"):
+                return "The user did NOT approve this. Do not do it; call done and summarise what is ready for them to review."
+        if name == "fill_field":
+            self.execute("left_click", {"coordinate": self._grid(a["x"], a["y"])})
+            pyautogui.hotkey("ctrl", "a")
+            _paste(a["text"])
+            settle(0.15)
+            return f"Filled {a.get('label', 'field')}."
         if name == "click":
             action = {"right": "right_click", "double": "double_click"}.get(a.get("button"), "left_click")
             return self.execute(action, {"coordinate": self._grid(a["x"], a["y"])})
         if name == "type":
-            return self.execute("type", {"text": a["text"]})
+            _paste(a["text"])
+            return "OK"
         if name == "key":
             return self.execute("key", {"text": a["keys"].replace(" ", "")})
         if name == "scroll":
@@ -330,12 +359,21 @@ class Sidekick:
             return self.execute(name, a)
         return f"Unknown function {name!r}."
 
-    def _shot_msg(self) -> dict:
-        b64 = png_b64(self.screen.grab())
+    def _shot_msg(self, note: str = "") -> dict:
+        img = self.screen.grab()
+        digest = hashlib.md5(img.resize((160, 100)).tobytes()).hexdigest()
+        self._unchanged = getattr(self, "_last_digest", None) == digest
+        if self._unchanged:
+            note +=" WARNING: the screen did not change after your last actions - they probably didn't work."
+        self._last_digest = digest
+        b64 = png_b64(img)
         return {"role": "user", "content": [
-            {"type": "text", "text": "Current screen:"},
+            {"type": "text", "text": ("Current screen:" + note).strip()},
             {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
         ]}
+
+    def _stuck(self, tries: dict) -> bool:
+        return getattr(self, "_unchanged", False) or any(n >= 2 for n in tries.values())
 
     def _run_gemini(self, task: str, system: str) -> str:
         import json
@@ -347,19 +385,32 @@ class Sidekick:
         if not key:
             return "Set GEMINI_API_KEY (or gemini_api_key in config.json) to use Sidekick with Gemini."
         url = self.cfg["gemini_url"].rstrip("/") + "/chat/completions"
+        self._last_digest = None
         messages = [{"role": "system", "content": system}, {"role": "user", "content": task}, self._shot_msg()]
+        tries: dict[str, int] = {}  # action signature -> times attempted
+        nudges = 0
         for step in range(self.cfg["sidekick_max_steps"]):
             if self.stop_event.is_set():
                 return "Stopped by you."
             self.status(f"step {step + 1}: thinking...")
             r = post_with_retry(url, headers={"Authorization": f"Bearer {key}"}, timeout=180,
-                              json={"model": self.cfg["gemini_model"], "messages": messages, "tools": GEMINI_TOOLS})
+                                json={"model": self.cfg["gemini_model"], "messages": messages, "tools": GEMINI_TOOLS,
+                                      # fast by default; think hard once it looks stuck
+                                      "reasoning_effort": "high" if self._stuck(tries) else self.cfg.get("sidekick_thinking", "low")})
             if r.status_code != 200:
                 return f"Gemini error {r.status_code}: {r.text[:300]}"
             msg = r.json()["choices"][0]["message"]
             calls = msg.get("tool_calls") or []
             if not calls:
+                # Gemini sometimes "thinks" the steps without doing them. Push it to act, a couple of times.
+                if nudges < 2:
+                    nudges += 1
+                    messages.append({"role": "assistant", "content": msg.get("content") or ""})
+                    messages.append({"role": "user", "content": "You only described it - nothing happened on screen. "
+                                     "Do it now with function calls (fill_field, click, key), or call done if the task is really finished."})
+                    continue
                 return (msg.get("content") or "Done.").strip()
+            nudges = 0
             messages.append({"role": "assistant", "content": msg.get("content") or "", "tool_calls": calls})
             for call in calls:
                 name = call["function"]["name"]
@@ -367,9 +418,16 @@ class Sidekick:
                     args = json.loads(call["function"].get("arguments") or "{}")
                 except json.JSONDecodeError:
                     args = {}
-                self.status(f"step {step + 1}: {name} {_brief(args)}")
+                if name == "done":
+                    return args.get("summary") or "Done."
+                sig = name + json.dumps({k: (round(v, -1) if isinstance(v, (int, float)) else v) for k, v in args.items()}, sort_keys=True)
+                tries[sig] = tries.get(sig, 0) + 1
+                self.status(f"step {step + 1}: {args.get('label') or name} {'' if args.get('label') else _brief(args)}")
                 try:
-                    if name == "ask_user":
+                    if tries[sig] > 3:
+                        out = ("Skipped: you've tried this exact action 3 times already and it isn't working. "
+                               "Think about why, then try a different approach.")
+                    elif name == "ask_user":
                         out = self.ask(args.get("question", "")) or "(no answer - do not proceed with that step)"
                     else:
                         out = self._gemini_action(name, args)
@@ -390,6 +448,15 @@ class Sidekick:
 
     def stop(self) -> None:
         self.stop_event.set()
+
+
+def _paste(text: str) -> None:
+    """Enter text via the clipboard: instant, exact, and works with any character or keyboard layout."""
+    old = pyperclip.paste()
+    pyperclip.copy(text)
+    pyautogui.hotkey("ctrl", "v")
+    time.sleep(0.1)
+    pyperclip.copy(old)
 
 
 def _brief(inp: dict) -> str:
