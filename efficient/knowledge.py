@@ -1,4 +1,4 @@
-"""The nightly knowledge build.
+﻿"""The nightly knowledge build.
 
 Reads new items from every enabled source, has the model fold them into a set of
 plain markdown files in Knowledge\\ (you can read, edit or delete any of them):
@@ -82,7 +82,7 @@ def read_topic(topic: str) -> str:
     return p.read_text(encoding="utf-8") if p.exists() else ""
 
 
-def profile_context(max_chars: int = 20_000) -> list[str]:
+def profile_context(max_chars: int = 50_000) -> list[str]:
     """The files listed in config "profile_files", read in full (txt, md, pdf, docx)."""
     from pathlib import Path
 
