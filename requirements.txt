@@ -11,3 +11,4 @@ uiautomation>=2.0.18 ; sys_platform == "win32"
 pypdf>=4.0
 python-docx>=1.1
 winocr>=0.0.4 ; sys_platform == "win32"
+websocket-client>=1.8

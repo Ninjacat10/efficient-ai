@@ -86,16 +86,17 @@ def _norm(s: str) -> str:
 BROWSER_CHROME = re.compile(r"address and search bar|search tabs|address bar|search or enter web address", re.I)
 
 
-def find_fields() -> list:
+def find_fields(offscreen: bool = False) -> list:
+    """offscreen=True also returns fields scrolled out of view (browsers keep the whole page in the tree)."""
     # Browsers build the page's accessibility tree lazily, on the first UI Automation query - so look twice.
-    fields = _scan_fields()
+    fields = _scan_fields(offscreen)
     if not fields:
         time.sleep(0.8)
-        fields = _scan_fields()
+        fields = _scan_fields(offscreen)
     return fields
 
 
-def _scan_fields() -> list:
+def _scan_fields(offscreen: bool = False) -> list:
     """Text boxes and dropdowns in the front window, with their real labels, via Windows UI Automation.
 
     Browsers expose each input's accessible name ("First name", "Email"...), so filling by name can't put
@@ -106,12 +107,12 @@ def _scan_fields() -> list:
     fields, start = [], time.time()
     root = auto.GetForegroundControl()
     for c, _depth in auto.WalkControl(root, includeTop=False, maxDepth=60):
-        if time.time() - start > 8 or len(fields) >= 120:
+        if time.time() - start > 15 or len(fields) >= 200:
             break
         if c.ControlTypeName in FIELD_TYPES:
             try:
                 r = c.BoundingRectangle
-                if r.width() > 4 and r.height() > 4 and not c.IsOffscreen and not BROWSER_CHROME.search(c.Name or ""):
+                if r.width() > 4 and r.height() > 4 and (offscreen or not c.IsOffscreen) and not BROWSER_CHROME.search(c.Name or ""):
                     fields.append(c)
             except Exception:
                 continue
