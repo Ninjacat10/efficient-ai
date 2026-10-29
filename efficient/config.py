@@ -32,7 +32,12 @@ DEFAULTS: dict = {
     "openai_compat_model": "local-model",
     # Gemini via Google's OpenAI-compatible endpoint. Key: GEMINI_API_KEY env var or gemini_api_key.
     "gemini_url": "https://generativelanguage.googleapis.com/v1beta/openai",
-    "gemini_model": "gemini-2.5-flash",
+    # Free keys get only ~20 requests/day on 2.5 Flash; the 3.5 models have far more room and are faster.
+    "gemini_model": "gemini-3.5-flash",
+    "gemini_fast_model": "gemini-3.5-flash-lite",
+    # Fast layer for form filling: "gemini_fast" or "ollama_fast" (local open model, e.g. gemma).
+    "fast_provider": "gemini_fast",
+    "ollama_fast_model": "gemma3:4b",
     "gemini_api_key": "",
     # Sidekick backend: "anthropic" (Claude computer use) or "gemini".
     "sidekick_provider": "anthropic",

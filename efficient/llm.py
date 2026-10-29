@@ -144,6 +144,10 @@ def get_provider(kind: str | None = None):
         return OpenAICompatProvider(cfg["openai_compat_url"], cfg["openai_compat_model"])
     if kind == "claude_code":
         return ClaudeCodeProvider()
+    if kind == "gemini_fast":  # small, fast model for quick jobs like filling forms
+        return OpenAICompatProvider(cfg["gemini_url"], cfg["gemini_fast_model"], secret("GEMINI_API_KEY") or cfg["gemini_api_key"])
+    if kind == "ollama_fast":  # fully local/open-source option, e.g. gemma
+        return OllamaProvider(cfg["ollama_url"], cfg.get("ollama_fast_model", cfg["ollama_model"]))
     if kind == "gemini":
         import os
 

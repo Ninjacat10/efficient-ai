@@ -126,7 +126,38 @@ class App:
             self.ui.call(self.ui.toast, "Couldn't find the Claude desktop app. Install it from claude.com/download.")
 
     def fill_form(self):
-        """One key: fill the job application (or any form) in the window you're looking at."""
+        """One key: fast-fill the job application (or any form) in the window you're looking at. Never submits."""
+        from . import autofill
+
+        def work():
+            if not self.busy.acquire(blocking=False):
+                self.ui.call(self.ui.toast, "Already working on something.")
+                return
+            holder = {}
+            ready = threading.Event()
+
+            def show():
+                holder["pill"], holder["label"] = self.ui.status_pill(self.stop_sidekick)
+                ready.set()
+
+            self.ui.call(show)
+            ready.wait(3)
+            status = lambda s: "label" in holder and self.ui.call(holder["label"].configure, {"text": s[:90]})
+            try:
+                result = autofill.fill(status)
+            except Exception as e:
+                log.exception("autofill failed")
+                result = f"Couldn't fill the form: {e}"
+            finally:
+                self.busy.release()
+                if "pill" in holder:
+                    self.ui.call(holder["pill"].destroy)
+            self.ui.call(self.ui.toast, result, 15000)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def fill_form_sidekick(self):
+        """Slower, screen-driving version: handles uploads, multi-page flows and odd widgets."""
         resume = self.cfg.get("resume_path", "")
         task = ("Fill out the form (usually a job application) in the window that is in front right now. Do not switch away from it.\n"
                 "- Fill every field you can from the knowledge base and profile files: name, contact details, education, work history, "
@@ -177,7 +208,8 @@ class App:
         hk = self.cfg["hotkeys"]
         self.ui.call(self.ui.home, [
             ("Hand off a task", f"Type or speak it, Sidekick does it  ·  {hk['sidekick'].title()}", lambda: self.open_sidekick()),
-            ("Fill this application", f"Fills the form in front of you  ·  {hk.get('fill_form', 'ctrl+alt+f').title()}", self.fill_form),
+            ("Fill this application", f"Fast: fills the form in front of you, never submits  ·  {hk.get('fill_form', 'ctrl+alt+f').title()}", self.fill_form),
+            ("Fill with Sidekick", "Slower: also uploads your resume and clicks through pages", self.fill_form_sidekick),
             ("Morning cards", "What needs you today", self.show_cards),
             ("Refresh knowledge now", "Read new mail, notes and files", self.refresh_now),
             ("Claude Code", "Coding agent in a terminal, on your Claude plan", self.open_claude_code),
