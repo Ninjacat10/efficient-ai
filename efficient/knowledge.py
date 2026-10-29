@@ -82,9 +82,29 @@ def read_topic(topic: str) -> str:
     return p.read_text(encoding="utf-8") if p.exists() else ""
 
 
+def profile_context(max_chars: int = 20_000) -> list[str]:
+    """The files listed in config "profile_files", read in full (txt, md, pdf, docx)."""
+    from pathlib import Path
+
+    out, used = [], 0
+    for raw in load_config().get("profile_files", []):
+        p = Path(raw).expanduser()
+        text = sources._read_file(p, limit=max_chars) if p.is_file() else ""
+        if text.strip():
+            out.append(f"# profile: {p.name}\n{text[:max_chars - used]}")
+            used += len(text)
+        if used >= max_chars:
+            break
+    return out
+
+
 def knowledge_context(max_chars: int = 40_000) -> str:
-    """Everything Efficient knows, concatenated - fed to Sidekick, Double Tap and suggestions."""
-    parts = [f"# {t}.md\n{read_topic(t)}" for t in TOPICS if read_topic(t)]
+    """Everything Efficient knows, concatenated - fed to Sidekick, Double Tap and suggestions.
+
+    Profile files (your "second brain", resume...) go first, read fresh each time, so they're never cut off.
+    """
+    parts = profile_context()
+    parts += [f"# {t}.md\n{read_topic(t)}" for t in TOPICS if read_topic(t)]
     daily = sorted((KNOWLEDGE_DIR / "daily").glob("*.md"))[-3:] if (KNOWLEDGE_DIR / "daily").exists() else []
     parts += [f"# daily/{p.name}\n{p.read_text(encoding='utf-8')}" for p in daily]
     return "\n\n".join(parts)[:max_chars]

@@ -56,10 +56,15 @@ DEFAULTS: dict = {
         "doubletap_window_ms": 350,
         "kill_switch": "ctrl+alt+esc",
         "home": "ctrl+alt+e",
+        "fill_form": "ctrl+alt+f",
     },
     # Start Windows voice typing as soon as the Sidekick box opens (Ctrl+M toggles it either way).
     "voice_on_open": False,
     "claude_code_folder": "~",
+    # Files about you (second brain, resume, cover-letter notes) given to every Sidekick and Double Tap run.
+    "profile_files": [],
+    # Resume to upload when a job application asks for one.
+    "resume_path": "",
     "nightly_time": "03:00",
     "sidekick_max_steps": 60,
 }

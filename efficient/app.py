@@ -32,7 +32,11 @@ class App:
     # ---- Sidekick ----------------------------------------------------------
     def open_sidekick(self, preset: str | None = None):
         if preset:
-            self._run_task(preset, lambda s: log.info(s), lambda: None)
+            def start():  # on the UI thread: show the status pill, then run
+                pill, label = self.ui.status_pill(self.stop_sidekick)
+                self._run_task(preset, lambda s: self.ui.call(label.configure, {"text": s[:90]}), lambda: self.ui.call(pill.destroy))
+
+            self.ui.call(start)
         else:
             self.ui.call(self.ui.sidekick_bar, self._run_task, self.stop_sidekick)
 
@@ -121,16 +125,66 @@ class App:
         except OSError:
             self.ui.call(self.ui.toast, "Couldn't find the Claude desktop app. Install it from claude.com/download.")
 
+    def fill_form(self):
+        """One key: fill the job application (or any form) in the window you're looking at."""
+        resume = self.cfg.get("resume_path", "")
+        task = ("Fill out the form (usually a job application) in the window that is in front right now. Do not switch away from it.\n"
+                "- Fill every field you can from the knowledge base and profile files: name, contact details, education, work history, "
+                "skills, links, work authorization, availability, and short answers written in my voice.\n"
+                + (f"- If it asks for a resume or CV, upload this file: {resume}\n" if resume else "")
+                + "- Scroll through the whole page, and through every step of multi-page forms.\n"
+                "- Collect everything you can't answer from what you know, and ask me ONCE with ask_user, as a short numbered list. "
+                "Never guess at legal answers (sponsorship, demographics, criminal record) - ask or leave them.\n"
+                "- Stop before the final Submit button and ask_user for approval to submit.")
+        self.open_sidekick(task)
+
+    def show_help(self):
+        hk = self.cfg["hotkeys"]
+        self.ui.call(self.ui.help_window, [
+            ("Anywhere on your PC", [
+                (hk.get("home", "ctrl+alt+e").title(), "Open the Efficient AI home window"),
+                (hk["sidekick"].title(), "Sidekick: type or speak a task, and it does it on your screen"),
+                (hk.get("fill_form", "ctrl+alt+f").title(), "Fill the job application or form in front of you"),
+                (f"{hk['doubletap_key'].title()} ×2", "Double-tap in an email or chat to draft a reply in your voice"),
+                (hk["kill_switch"].title(), "Stop Sidekick right now"),
+                ("Mouse to a corner", "Emergency stop: slam the mouse into any screen corner"),
+            ]),
+            ("In the Sidekick box", [
+                ("Enter", "Start the task"),
+                ("Ctrl+M", "Speak instead of typing (you can type too)"),
+                ("Esc", "Close"),
+            ]),
+            ("In the reply draft", [
+                ("Ctrl+Enter", "Paste the reply where your cursor was"),
+                ("Ctrl+R", "Rewrite it (type how first, e.g. \"shorter\")"),
+                ("Ctrl+Shift+C", "Copy it"),
+            ]),
+            ("Everywhere else", [
+                ("1 - 9", "Pick an option on the home window, or act on a morning card"),
+                ("Enter / Esc", "Approve / deny when Sidekick asks before doing something"),
+                ("Esc", "Close any Efficient AI window"),
+            ]),
+            ("What it can do", [
+                ("Job applications", "Fills every field from your profile, uploads your resume, asks once for anything missing, waits for you before Submit"),
+                ("Busywork", "\"Find the Stripe tab and finish the application\", \"book a study room\", \"rename these files\""),
+                ("Replies", "Drafts email and chat replies that sound like you"),
+                ("Mornings", "Cards with what needs you today, each one ready to act on"),
+                ("Knowledge", "Learns from your mail, notes, files and second brain every night at 3 AM"),
+            ]),
+        ])
+
     def show_home(self):
         hk = self.cfg["hotkeys"]
         self.ui.call(self.ui.home, [
             ("Hand off a task", f"Type or speak it, Sidekick does it  ·  {hk['sidekick'].title()}", lambda: self.open_sidekick()),
+            ("Fill this application", f"Fills the form in front of you  ·  {hk.get('fill_form', 'ctrl+alt+f').title()}", self.fill_form),
             ("Morning cards", "What needs you today", self.show_cards),
             ("Refresh knowledge now", "Read new mail, notes and files", self.refresh_now),
             ("Claude Code", "Coding agent in a terminal, on your Claude plan", self.open_claude_code),
             ("Claude app / Cowork", "Open the Claude desktop app", self.open_claude_desktop),
             ("Knowledge folder", "Everything it knows about you, as files", lambda: os.startfile(KNOWLEDGE_DIR)),
             ("Settings", "config.json: providers, mail accounts, hotkeys", lambda: os.startfile(CONFIG_PATH)),
+            ("Shortcuts & help", "Every shortcut and what it can do  ·  F1", self.show_help),
         ], f"{hk.get('home', 'ctrl+alt+e').title()} opens this  ·  double-tap {hk['doubletap_key'].title()} to draft a reply")
 
     def _listen_for_second_launch(self):
@@ -159,11 +213,14 @@ class App:
         keyboard.add_hotkey(hk["sidekick"], self.open_sidekick)
         keyboard.add_hotkey(hk["kill_switch"], self.stop_sidekick)
         keyboard.add_hotkey(hk.get("home", "ctrl+alt+e"), self.show_home)
+        keyboard.add_hotkey(hk.get("fill_form", "ctrl+alt+f"), self.fill_form)
         DoubleTapListener(self.double_tap, hk["doubletap_key"], hk["doubletap_window_ms"]).start()
 
         menu = pystray.Menu(
             pystray.MenuItem("Open Efficient", lambda: self.show_home(), default=True),
             pystray.MenuItem("Hand off a task (Sidekick)", lambda: self.open_sidekick()),
+            pystray.MenuItem("Fill this application", lambda: self.fill_form()),
+            pystray.MenuItem("Shortcuts & help", lambda: self.show_help()),
             pystray.MenuItem("Claude Code", lambda: self.open_claude_code()),
             pystray.MenuItem("Claude app / Cowork", lambda: self.open_claude_desktop()),
             pystray.MenuItem("Morning cards", lambda: self.show_cards()),

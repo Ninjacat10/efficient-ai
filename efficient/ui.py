@@ -123,7 +123,7 @@ class UI:
         text.pack(side="left", padx=12, fill="x", expand=True)
         tk.Label(text, text=title, font=TITLE, bg=BG, fg=FG, anchor="w").pack(fill="x")
         if subtitle:
-            width = int(win.geometry().split("x")[0]) - 2 * PAD - 60
+            width = int(win.geometry().split("x")[0]) - 2 * PAD - 70
             tk.Label(text, text=subtitle, font=SMALL, bg=BG, fg=MUTED, anchor="w", justify="left", wraplength=width).pack(fill="x")
 
     def _footer(self, win, shortcuts: list[tuple[str, str]]):
@@ -173,10 +173,39 @@ class UI:
                 w.bind("<Leave>", lambda _, p=parts: [x.configure(bg=BG) for x in p])
             if n <= 9:
                 win.bind(str(n), lambda _, cb=cb: run(cb))
+            if title.startswith("Shortcuts"):
+                win.bind("<F1>", lambda _, cb=cb: run(cb))
         self._footer(win, [("1-9", "open"), ("Esc", "hide")])
         win.bind("<Escape>", lambda _: win.withdraw())
         win.protocol("WM_DELETE_WINDOW", win.withdraw)
         self._fit(win, W)
+        win.focus_force()
+
+    # ---- shortcuts & help ------------------------------------------------------
+    def help_window(self, sections: list[tuple[str, list[tuple[str, str]]]]):
+        """A cheat sheet: every shortcut and what Efficient AI can do."""
+        W = 640
+        win = self._window("Efficient AI - shortcuts & help", W, 700)
+        self._header(win, "Shortcuts & help", "Everything works from the keyboard. Press F1 on the home window to come back here.")
+        canvas = tk.Canvas(win, bg=BG, highlightthickness=0)
+        inner = tk.Frame(canvas, bg=BG)
+        inner.bind("<Configure>", lambda _: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=inner, anchor="nw", width=W - 2 * PAD)
+        self._footer(win, [("↑ ↓", "scroll"), ("Esc", "close")])
+        canvas.pack(fill="both", expand=True, padx=PAD, before=win.pack_slaves()[-2])
+        win.bind("<MouseWheel>", lambda e: canvas.yview_scroll(-e.delta // 120, "units"))
+        win.bind("<Down>", lambda _: canvas.yview_scroll(2, "units"))
+        win.bind("<Up>", lambda _: canvas.yview_scroll(-2, "units"))
+        for title, rows in sections:
+            tk.Label(inner, text=title.upper(), font=(F, 8, "bold"), bg=BG, fg=ACCENT_2, anchor="w").pack(fill="x", pady=(14, 6))
+            box = tk.Frame(inner, bg=SURFACE, padx=14, pady=6)
+            box.pack(fill="x")
+            box.columnconfigure(1, weight=1)
+            for r, (keys, what) in enumerate(rows):
+                tk.Label(box, text=keys, font=(F, 9), bg=LINE, fg=FG, padx=7, pady=2).grid(row=r, column=0, sticky="nw", pady=6)
+                tk.Label(box, text=what, font=SMALL, bg=SURFACE, fg=FG, anchor="w", justify="left",
+                         wraplength=W - 2 * PAD - 230).grid(row=r, column=1, sticky="w", padx=(14, 0), pady=6)
+            box.columnconfigure(0, minsize=170)
         win.focus_force()
 
     # ---- approvals -----------------------------------------------------------

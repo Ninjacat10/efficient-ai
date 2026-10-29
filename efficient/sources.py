@@ -31,19 +31,19 @@ def _iso(ts: float) -> str:
     return dt.datetime.fromtimestamp(ts).isoformat(timespec="seconds")
 
 
-def _read_file(p: Path) -> str:
+def _read_file(p: Path, limit: int = MAX_CHARS) -> str:
     ext = p.suffix.lower()
     try:
         if ext in TEXT_EXT:
-            return p.read_text(encoding="utf-8", errors="ignore")[:MAX_CHARS]
+            return p.read_text(encoding="utf-8", errors="ignore")[:limit]
         if ext == ".pdf":
             from pypdf import PdfReader
 
-            return "\n".join((pg.extract_text() or "") for pg in PdfReader(str(p)).pages[:15])[:MAX_CHARS]
+            return "\n".join((pg.extract_text() or "") for pg in PdfReader(str(p)).pages[:15])[:limit]
         if ext == ".docx":
             import docx
 
-            return "\n".join(par.text for par in docx.Document(str(p)).paragraphs)[:MAX_CHARS]
+            return "\n".join(par.text for par in docx.Document(str(p)).paragraphs)[:limit]
     except Exception as e:  # corrupt / locked files are common; skip them
         log.debug("skip %s: %s", p, e)
     return ""
