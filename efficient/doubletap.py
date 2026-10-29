@@ -112,16 +112,25 @@ class DoubleTapListener:
     def __init__(self, on_trigger, key: str = "ctrl", window_ms: int = 350):
         self.on_trigger, self.key, self.window = on_trigger, key, window_ms / 1000
         self.last = 0.0
+        self.held = False  # key is down; Windows auto-repeats "down" events while it's held
+        self.pressed_at = 0.0
 
     def _handler(self, ev):
-        if ev.event_type != "down":
-            return
         # On Windows the keyboard lib names side-specific modifiers ("right ctrl", "right alt").
         if (ev.name or "").lower() != self.key:
-            self.last = 0.0
+            if ev.event_type == "down":
+                self.last = 0.0  # another key in between (e.g. Ctrl+C): not a double tap
             return
         now = time.monotonic()
-        if now - self.last < self.window:
+        if ev.event_type == "up":
+            if self.held and now - self.pressed_at > self.window:
+                self.last = 0.0  # a long hold isn't a tap
+            self.held = False
+            return
+        if self.held:  # auto-repeat while held
+            return
+        self.held, self.pressed_at = True, now
+        if self.last and now - self.last < self.window:
             self.last = 0.0
             self.on_trigger()
         else:

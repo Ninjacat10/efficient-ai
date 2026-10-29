@@ -28,6 +28,7 @@ class App:
         self.sidekick: Sidekick | None = None
         self.busy = threading.Lock()
         self.dt = DoubleTap()
+        self._drafting = threading.Lock()
 
     # ---- Sidekick ----------------------------------------------------------
     def open_sidekick(self, preset: str | None = None):
@@ -72,19 +73,26 @@ class App:
 
     # ---- Double Tap --------------------------------------------------------
     def double_tap(self, extra: str = "", ctx=None):
+        if self._drafting.locked():  # one draft at a time; ignore extra taps while it's working
+            return
+
         def work():
-            try:
-                c = ctx or self.dt.capture()
-                draft = self.dt.draft(c, extra)
-            except Exception as e:
-                log.exception("double tap failed")
-                self.ui.call(self.ui.toast, f"Double Tap failed: {e}")
-                return
-            self.ui.call(self.ui.draft_popup, draft,
-                         lambda text: threading.Thread(target=self.dt.insert, args=(text,), daemon=True).start(),
-                         lambda hint: self.double_tap(hint, c))
+            with self._drafting:
+                self._double_tap(extra, ctx)
 
         threading.Thread(target=work, daemon=True).start()
+
+    def _double_tap(self, extra, ctx):
+        try:
+            c = ctx or self.dt.capture()
+            draft = self.dt.draft(c, extra)
+        except Exception as e:
+            log.exception("double tap failed")
+            self.ui.call(self.ui.toast, f"Double Tap failed: {e}")
+            return
+        self.ui.call(self.ui.draft_popup, draft,
+                     lambda text: threading.Thread(target=self.dt.insert, args=(text,), daemon=True).start(),
+                     lambda hint: self.double_tap(hint, c))
 
     # ---- Proactive ---------------------------------------------------------
     def show_cards(self):
