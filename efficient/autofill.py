@@ -43,7 +43,7 @@ def check_stop() -> None:
         raise Stopped()
 
 
-def ask(llm, *args, **kw):
+def ask_ai(llm, *args, **kw):
     """llm.chat, but a stop doesn't wait for the AI to answer (that can take a minute)."""
     out = {}
 
@@ -530,6 +530,34 @@ def _attach(f: Field, path: str) -> bool:
 
 # ---- The whole flow -------------------------------------------------------------------------------------
 
+def pick_file(question: str, title: str, cfg: dict) -> str:
+    """The file for an upload field: a resume or cover letter made for this company/role when one exists
+    (e.g. Name_Resume_Stripe.pdf for a Stripe page), else the default resume.
+    Other uploads (transcripts, portfolios) return "" and are left for you."""
+    q = question.lower()
+    kind = "cover" if "cover" in q else "resume" if re.search(r"resume|cv|\(file field\)|attach", q) else ""
+    if not kind:
+        return ""
+    dirs = [Path(d).expanduser() for d in cfg.get("application_file_dirs") or
+            ["~/Downloads", "~/Documents/Claude outputs", "~/Documents"]]
+    if cfg.get("resume_path"):
+        dirs.append(Path(cfg["resume_path"]).parent)
+    page = set(re.findall(r"[a-z0-9]+", title.lower())) - {"job", "application", "for", "at", "and", "the", "microsoft", "edge", "google", "chrome", "intern", "profile", "personal"}
+    best, score = "", (0, 0.0)
+    for d in dirs:
+        for f in (d.glob("*.pdf") if d.is_dir() else []):
+            name = f.stem.lower()
+            if (kind == "cover") != ("cover" in name) or (kind == "resume" and "resume" not in name and "cv" not in name):
+                continue
+            words = set(re.findall(r"[a-z0-9]+", name))
+            mark = (len(words & page), f.stat().st_mtime)  # most matching words, then the newest
+            if mark[0] and mark > score:
+                best, score = str(f), mark
+    if best:
+        return best
+    return cfg.get("resume_path", "") if kind == "resume" else ""
+
+
 def _window_title() -> str:
     try:
         import win32gui
@@ -619,7 +647,7 @@ def fill(status=print) -> str:
                 if f.kind in ("checks", "radios"):
                     _tick(f, value)
                 elif f.kind == "file":
-                    if not _attach(f, cfg.get("resume_path", "")):
+                    if not _attach(f, pick_file(f.question, title, cfg)):
                         ask.append(f.question)
                         return
                 elif f.kind == "choice":
@@ -676,7 +704,7 @@ def fill(status=print) -> str:
             status(f"Asking AI about {len(rest)} field{'s' if len(rest) > 1 else ''}...")
             essays = any(f.kind == "essay" for f in rest)
             llm = get_provider(cfg.get("provider", "gemini") if essays else cfg.get("fast_provider", "gemini_fast"))
-            plan = _parse(ask(llm, "You fill web forms accurately and honestly. Output JSON only.",
+            plan = _parse(ask_ai(llm, "You fill web forms accurately and honestly. Output JSON only.",
                                    PROMPT.format(saved=memory.answers_text() or "(none yet)", title=title,
                                                  profile=knowledge_context(30_000), fields=_describe(rest)),
                                    effort="low"))
