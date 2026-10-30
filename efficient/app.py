@@ -68,6 +68,8 @@ class App:
         threading.Thread(target=work, daemon=True).start()
 
     def stop_sidekick(self):
+        from . import autofill
+        autofill.STOP.set()
         if self.sidekick:
             self.sidekick.stop()
 
@@ -156,9 +158,17 @@ class App:
 
             self.ui.call(show)
             ready.wait(3)
-            status = lambda s: "label" in holder and self.ui.call(holder["label"].configure, {"text": s[:90]})
+            autofill.STOP.clear()
+
+            def status(s):
+                autofill.check_stop()  # every step reports status first, so a stop lands within one step
+                if "label" in holder:
+                    self.ui.call(holder["label"].configure, {"text": s[:90]})
+
             try:
                 result = autofill.fill(status)
+            except autofill.Stopped:
+                result = "Stopped by you. Fields already filled stay as they are; nothing was submitted."
             except Exception as e:
                 log.exception("autofill failed")
                 result = f"Couldn't fill the form: {e}"

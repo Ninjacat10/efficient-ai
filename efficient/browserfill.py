@@ -387,7 +387,7 @@ def _set_text(fr: Frame, f, value: str) -> bool:
 
 def fill(status=print) -> str | None:
     """Fill the whole form in the browser tab in front. None if the browser can't be reached this way."""
-    from .autofill import PROMPT, _describe, _plausible
+    from .autofill import PROMPT, _describe, _plausible, ask
 
     if not re.search(r"Edge|Chrome|Brave", _front_title()):
         return None
@@ -448,6 +448,7 @@ def fill(status=print) -> str | None:
         status(f"Reading {sum(f.kind == 'choice' and not f.native for f in rest)} dropdowns...")
         for f in rest:
             if f.kind == "choice" and not f.native:
+                status(f"Reading options for {f.question[:40]}...")
                 try:
                     f.options = _open_options(fr, f.id)
                 finally:
@@ -457,7 +458,7 @@ def fill(status=print) -> str | None:
         llm = get_provider(cfg.get("provider", "gemini") if essays else cfg.get("fast_provider", "gemini_fast"))
         from .autofill import _parse
 
-        plan = _parse(llm.chat("You fill web forms accurately and honestly. Output JSON only.",
+        plan = _parse(ask(llm, "You fill web forms accurately and honestly. Output JSON only.",
                                PROMPT.format(saved=memory.answers_text() or "(none yet)", title=title,
                                              profile=knowledge_context(30_000), fields=_describe(rest)), effort="low"))
         log.info("form plan: %s", json.dumps(plan)[:3000])
@@ -469,7 +470,7 @@ def fill(status=print) -> str | None:
         if essays_left:
             status(f"Writing {len(essays_left)} answer{'s' if len(essays_left) > 1 else ''}...")
             qs = "\n".join(f"{n}. {f.question}" for n, f in enumerate(essays_left, 1))
-            out = _parse(get_provider(cfg.get("provider", "gemini")).chat(
+            out = _parse(ask(get_provider(cfg.get("provider", "gemini")), 
                 "You write job application answers in the applicant's own voice, using only real facts from their "
                 "background. Output JSON only.",
                 f"<about_user>\n{knowledge_context(30_000)}\n</about_user>\n\n<page>{title}</page>\n\n"

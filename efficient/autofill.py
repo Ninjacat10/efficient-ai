@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -29,6 +30,38 @@ from .screen import settle
 from .sidekick import BROWSER_CHROME, _field_value, _paste
 
 log = logging.getLogger(__name__)
+
+STOP = threading.Event()  # set by the Stop button / kill switch; checked before every step
+
+
+class Stopped(BaseException):
+    """BaseException so the per-field `except Exception` handlers can't swallow a stop."""
+
+
+def check_stop() -> None:
+    if STOP.is_set():
+        raise Stopped()
+
+
+def ask(llm, *args, **kw):
+    """llm.chat, but a stop doesn't wait for the AI to answer (that can take a minute)."""
+    out = {}
+
+    def run():
+        try:
+            out["v"] = llm.chat(*args, **kw)
+        except Exception as e:
+            out["e"] = e
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    while t.is_alive():
+        t.join(0.2)
+        check_stop()
+    if "e" in out:
+        raise out["e"]
+    return out["v"]
+
 
 PROMPT = """Fill this form for the user from what you know about them.
 
@@ -643,7 +676,7 @@ def fill(status=print) -> str:
             status(f"Asking AI about {len(rest)} field{'s' if len(rest) > 1 else ''}...")
             essays = any(f.kind == "essay" for f in rest)
             llm = get_provider(cfg.get("provider", "gemini") if essays else cfg.get("fast_provider", "gemini_fast"))
-            plan = _parse(llm.chat("You fill web forms accurately and honestly. Output JSON only.",
+            plan = _parse(ask(llm, "You fill web forms accurately and honestly. Output JSON only.",
                                    PROMPT.format(saved=memory.answers_text() or "(none yet)", title=title,
                                                  profile=knowledge_context(30_000), fields=_describe(rest)),
                                    effort="low"))
